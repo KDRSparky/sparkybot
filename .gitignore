@@ -1,0 +1,46 @@
+# Dependencies
+node_modules/
+.pnp/
+.pnp.js
+
+# Build
+dist/
+build/
+*.tsbuildinfo
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+
+# Testing
+coverage/
+.nyc_output/
+
+# Runtime
+*.pid
+*.seed
+*.pid.lock
+
+# Temporary
+tmp/
+temp/
+.cache/
+
+# Credentials (NEVER commit these)
+*.pem
+*.key
+credentials.json
+token.json

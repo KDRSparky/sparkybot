@@ -1,0 +1,42 @@
+{
+  "name": "sparkybot",
+  "version": "0.1.0",
+  "description": "Personal Executive Assistant powered by Gemini + Claude Code",
+  "type": "module",
+  "main": "dist/index.js",
+  "scripts": {
+    "dev": "tsx src/index.ts",
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "test": "vitest",
+    "lint": "eslint src/",
+    "typecheck": "tsc --noEmit"
+  },
+  "keywords": [
+    "telegram-bot",
+    "gemini",
+    "claude-code",
+    "ai-assistant",
+    "executive-assistant"
+  ],
+  "author": "Sparky",
+  "license": "UNLICENSED",
+  "private": true,
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "dependencies": {
+    "@google/generative-ai": "^0.21.0",
+    "@supabase/supabase-js": "^2.45.0",
+    "googleapis": "^140.0.0",
+    "grammy": "^1.30.0",
+    "zod": "^3.23.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "eslint": "^9.0.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.6.0",
+    "vitest": "^2.1.0"
+  }
+}

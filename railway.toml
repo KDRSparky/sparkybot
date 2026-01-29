@@ -1,0 +1,15 @@
+[build]
+builder = "nixpacks"
+
+[deploy]
+startCommand = "npm run start"
+healthcheckPath = "/"
+healthcheckTimeout = 300
+restartPolicyType = "on_failure"
+restartPolicyMaxRetries = 3
+
+[workflows]
+# Wake schedule for timely scheduled tasks
+# Market reports: 8am, 12pm, 3:15pm
+# Overnight analysis: 5am
+wakeSchedule = "0 5,8,12 * * *,15 15 * * *"
