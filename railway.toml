@@ -5,4 +5,6 @@ builder = "nixpacks"
 startCommand = "npm run start"
 restartPolicyType = "on_failure"
 restartPolicyMaxRetries = 3
-# No healthcheck - this is a Telegram bot, not a web server
+numReplicas = 1
+healthcheckPath = ""
+healthcheckTimeout = 0
