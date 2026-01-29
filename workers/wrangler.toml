@@ -1,0 +1,20 @@
+name = "sparkybot-scheduler"
+main = "scheduler.ts"
+compatibility_date = "2024-01-01"
+
+[triggers]
+# Market Reports (Central Time = UTC-6)
+# Weekdays only (Mon-Fri)
+crons = [
+  "0 14 * * 1-5",   # 8:00 AM CT - Morning Report
+  "0 18 * * 1-5",   # 12:00 PM CT - Midday Report  
+  "15 21 * * 1-5",  # 3:15 PM CT - Afternoon Report
+  "0 11 * * 1-5"    # 5:00 AM CT - Overnight Analysis
+]
+
+[vars]
+TELEGRAM_CHAT_ID = "8077890116"
+
+# Secrets (set via wrangler secret put)
+# TELEGRAM_BOT_TOKEN = ""
+# BOT_WEBHOOK_URL = ""
