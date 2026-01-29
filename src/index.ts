@@ -13,6 +13,14 @@ import { GoogleGenerativeAI } from '@google/generative-ai';
 import { createServer, IncomingMessage, ServerResponse } from 'http';
 import { buildSystemPrompt, getRandomDadJoke } from './core/personality.js';
 import { 
+  storeConversationMessage, 
+  clearConversation, 
+  checkDatabaseConnection,
+  buildMemoryContext,
+  storeMarketReport 
+} from './core/memory.js';
+import { isSupabaseConfigured } from './core/supabase.js';
+import { 
   generateMarketReport, 
   getQuickQuote, 
   getPortfolioOverview,
@@ -52,11 +60,13 @@ const server = createServer(async (req: IncomingMessage, res: ServerResponse) =>
   console.log(`📡 HTTP ${req.method} ${req.url}`);
   
   if (req.url === '/' || req.url === '/health') {
+    const dbConnected = await checkDatabaseConnection();
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ 
       status: 'ok', 
       service: 'SparkyBot',
-      uptime: process.uptime()
+      uptime: process.uptime(),
+      database: dbConnected ? 'connected' : 'not configured',
     }));
     return;
   }
@@ -70,8 +80,13 @@ const server = createServer(async (req: IncomingMessage, res: ServerResponse) =>
         const data = JSON.parse(body);
         
         if (data.action === 'market_report') {
-          const report = await generateMarketReport(data.type || 'morning');
+          const reportType = data.type || 'morning';
+          const report = await generateMarketReport(reportType);
           await sendTelegramMessage(report);
+          
+          // Store in database
+          await storeMarketReport(reportType, { text: report }, 'telegram');
+          
           res.writeHead(200);
           res.end('Report sent');
         } else {
@@ -147,7 +162,7 @@ const model = genAI.getGenerativeModel({
   systemInstruction: buildEnhancedSystemPrompt(),
 });
 
-// Conversation history (in-memory for now, will move to Supabase)
+// Conversation history (in-memory for Gemini sessions)
 const chatSessions: Map<number, ReturnType<typeof model.startChat>> = new Map();
 
 // Get or create chat session
@@ -190,6 +205,7 @@ bot.command('status', async (ctx) => {
   const uptime = process.uptime();
   const hours = Math.floor(uptime / 3600);
   const minutes = Math.floor((uptime % 3600) / 60);
+  const dbConnected = await checkDatabaseConnection();
   
   await ctx.reply(
     `📊 *SparkyBot Status*\n\n` +
@@ -197,6 +213,7 @@ bot.command('status', async (ctx) => {
     `⏱ Uptime: ${hours}h ${minutes}m\n` +
     `🧠 Brain: Gemini 2.0 Flash\n` +
     `📈 Market Intel: Active\n` +
+    `💾 Database: ${dbConnected ? '✅ Connected' : '⚠️ Not configured'}\n` +
     `🔒 Secured to your account\n\n` +
     `_Scheduled reports: 8am, 12pm, 3:15pm CT_`,
     { parse_mode: 'Markdown' }
@@ -206,6 +223,7 @@ bot.command('status', async (ctx) => {
 // Command: /clear - Clear conversation history
 bot.command('clear', async (ctx) => {
   chatSessions.delete(ctx.chat.id);
+  await clearConversation(ctx.chat.id.toString());
   await ctx.reply(`🧹 Conversation cleared! Fresh start. What's on your mind?`);
 });
 
@@ -216,6 +234,10 @@ bot.command('portfolio', async (ctx) => {
   try {
     const overview = await getPortfolioOverview();
     await ctx.reply(overview, { parse_mode: 'Markdown' });
+    
+    // Log the query
+    await storeConversationMessage(ctx.chat.id.toString(), 'user', '/portfolio', 'market');
+    await storeConversationMessage(ctx.chat.id.toString(), 'assistant', overview, 'market');
   } catch (error) {
     console.error('Portfolio error:', error);
     await ctx.reply('Had trouble loading the portfolio. Let me check on that.');
@@ -250,6 +272,10 @@ bot.command('quote', async (ctx) => {
         `Total gain: ${gain >= 0 ? '+' : ''}$${gain.toFixed(2)} (${gainPct.toFixed(1)}%)`
       );
     }
+    
+    // Log the query
+    await storeConversationMessage(ctx.chat.id.toString(), 'user', `/quote ${symbol}`, 'market');
+    await storeConversationMessage(ctx.chat.id.toString(), 'assistant', quote, 'market');
   } catch (error) {
     console.error('Quote error:', error);
     await ctx.reply(`Couldn't fetch quote for ${symbol}. Make sure it's a valid ticker.`);
@@ -273,6 +299,10 @@ bot.command('market', async (ctx) => {
     } else {
       await ctx.reply(report, { parse_mode: 'Markdown' });
     }
+    
+    // Log and store report
+    await storeConversationMessage(ctx.chat.id.toString(), 'user', '/market', 'market');
+    await storeMarketReport('morning', { text: report }, 'telegram');
   } catch (error) {
     console.error('Market report error:', error);
     await ctx.reply('Had some trouble generating the market report. Markets might be closed or data unavailable.');
@@ -283,6 +313,7 @@ bot.command('market', async (ctx) => {
 bot.on('message:text', async (ctx) => {
   if (!ctx.message) return;
   const message = ctx.message.text.toLowerCase();
+  const originalMessage = ctx.message.text;
   const chatId = ctx.chat.id;
   
   // Quick intent detection for market queries
@@ -290,6 +321,8 @@ bot.on('message:text', async (ctx) => {
     await ctx.replyWithChatAction('typing');
     const overview = await getPortfolioOverview();
     await ctx.reply(overview, { parse_mode: 'Markdown' });
+    await storeConversationMessage(chatId.toString(), 'user', originalMessage, 'market');
+    await storeConversationMessage(chatId.toString(), 'assistant', overview, 'market');
     return;
   }
   
@@ -298,6 +331,8 @@ bot.on('message:text', async (ctx) => {
     await ctx.replyWithChatAction('typing');
     const report = await generateMarketReport('morning');
     await ctx.reply(report, { parse_mode: 'Markdown' });
+    await storeConversationMessage(chatId.toString(), 'user', originalMessage, 'market');
+    await storeConversationMessage(chatId.toString(), 'assistant', report, 'market');
     return;
   }
   
@@ -307,6 +342,8 @@ bot.on('message:text', async (ctx) => {
     await ctx.replyWithChatAction('typing');
     const quote = await getQuickQuote(quoteMatch[1]);
     await ctx.reply(quote, { parse_mode: 'Markdown' });
+    await storeConversationMessage(chatId.toString(), 'user', originalMessage, 'market');
+    await storeConversationMessage(chatId.toString(), 'assistant', quote, 'market');
     return;
   }
   
@@ -314,9 +351,15 @@ bot.on('message:text', async (ctx) => {
   await ctx.replyWithChatAction('typing');
   
   try {
+    // Store user message
+    await storeConversationMessage(chatId.toString(), 'user', originalMessage, 'general');
+    
     const chat = getChatSession(chatId);
-    const result = await chat.sendMessage(ctx.message.text);
+    const result = await chat.sendMessage(originalMessage);
     const response = result.response.text();
+    
+    // Store assistant response
+    await storeConversationMessage(chatId.toString(), 'assistant', response, 'general');
     
     // Send response (split if too long for Telegram)
     if (response.length > 4000) {
@@ -358,15 +401,31 @@ process.on('SIGTERM', () => {
   process.exit(0);
 });
 
-// Start Telegram bot (after health server is already running)
-console.log('🤖 SparkyBot starting up...');
-console.log(`📱 Telegram: Restricted to user ID ${config.telegram.ownerUserId}`);
-console.log(`🧠 AI: Gemini 2.0 Flash connected`);
-console.log(`📈 Market Intel: Loaded`);
+// ============================================
+// Startup
+// ============================================
+async function startup() {
+  console.log('🤖 SparkyBot starting up...');
+  console.log(`📱 Telegram: Restricted to user ID ${config.telegram.ownerUserId}`);
+  console.log(`🧠 AI: Gemini 2.0 Flash connected`);
+  console.log(`📈 Market Intel: Loaded`);
+  
+  // Check database
+  const dbConnected = await checkDatabaseConnection();
+  if (dbConnected) {
+    console.log(`💾 Database: Connected to Supabase`);
+  } else if (isSupabaseConfigured) {
+    console.log(`⚠️ Database: Supabase configured but connection failed`);
+  } else {
+    console.log(`⚠️ Database: Not configured, using in-memory storage`);
+  }
+  
+  bot.start({
+    onStart: (botInfo) => {
+      console.log(`✅ Bot running as @${botInfo.username}`);
+      console.log(`💬 Ready to assist!`);
+    },
+  }).catch(console.error);
+}
 
-bot.start({
-  onStart: (botInfo) => {
-    console.log(`✅ Bot running as @${botInfo.username}`);
-    console.log(`💬 Ready to assist!`);
-  },
-}).catch(console.error);
+startup();
