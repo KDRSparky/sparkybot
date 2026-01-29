@@ -224,6 +224,7 @@ bot.command('portfolio', async (ctx) => {
 
 // Command: /quote SYMBOL - Get stock quote
 bot.command('quote', async (ctx) => {
+  if (!ctx.message) return;
   const symbol = ctx.message.text.split(' ')[1];
   
   if (!symbol) {
@@ -280,6 +281,7 @@ bot.command('market', async (ctx) => {
 
 // Main message handler - Natural language processing
 bot.on('message:text', async (ctx) => {
+  if (!ctx.message) return;
   const message = ctx.message.text.toLowerCase();
   const chatId = ctx.chat.id;
   

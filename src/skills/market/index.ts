@@ -125,7 +125,7 @@ export async function getStockQuote(symbol: string): Promise<MarketData | null> 
 
     if (!response.ok) return null;
 
-    const data = await response.json();
+    const data: any = await response.json();
     const result = data.chart?.result?.[0];
     if (!result) return null;
 
@@ -159,7 +159,7 @@ export async function getCryptoPrice(coinId: string): Promise<MarketData | null>
     const response = await fetch(url);
     if (!response.ok) return null;
 
-    const data = await response.json();
+    const data: any = await response.json();
     const coin = data[coinId];
     if (!coin) return null;
 
