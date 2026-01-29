@@ -10,6 +10,7 @@
 
 import { Bot, Context } from 'grammy';
 import { GoogleGenerativeAI } from '@google/generative-ai';
+import { createServer } from 'http';
 import { buildSystemPrompt, getRandomDadJoke } from './core/personality.js';
 
 // Configuration
@@ -21,6 +22,7 @@ const config = {
   gemini: {
     apiKey: process.env.GEMINI_API_KEY || '',
   },
+  port: parseInt(process.env.PORT || '3000', 10),
 };
 
 // Validate config
@@ -43,6 +45,21 @@ const genAI = new GoogleGenerativeAI(config.gemini.apiKey);
 const model = genAI.getGenerativeModel({ 
   model: 'gemini-2.0-flash-exp',
   systemInstruction: buildSystemPrompt(),
+});
+
+// Simple HTTP server for Railway healthcheck
+const server = createServer((req, res) => {
+  if (req.url === '/' || req.url === '/health') {
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ 
+      status: 'ok', 
+      service: 'SparkyBot',
+      uptime: process.uptime()
+    }));
+  } else {
+    res.writeHead(404);
+    res.end('Not found');
+  }
 });
 
 // Conversation history (in-memory for now, will move to Supabase)
@@ -143,20 +160,27 @@ bot.catch((err) => {
 process.on('SIGINT', () => {
   console.log('\n👋 Shutting down gracefully...');
   bot.stop();
+  server.close();
   process.exit(0);
 });
 
 process.on('SIGTERM', () => {
   console.log('\n👋 Shutting down gracefully...');
   bot.stop();
+  server.close();
   process.exit(0);
 });
 
-// Start bot
+// Start bot and health server
 async function main() {
   console.log('🤖 SparkyBot starting up...');
   console.log(`📱 Telegram: Restricted to user ID ${config.telegram.ownerUserId}`);
   console.log(`🧠 AI: Gemini 2.0 Flash connected`);
+  
+  // Start HTTP server for healthcheck
+  server.listen(config.port, () => {
+    console.log(`🏥 Health server listening on port ${config.port}`);
+  });
   
   await bot.start({
     onStart: (botInfo) => {
