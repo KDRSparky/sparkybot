@@ -8,9 +8,9 @@
  * Brain: Gemini 2.0 Flash (chat) + Claude Code CLI (complex tasks)
  */
 
-import { Bot, Context } from 'grammy';
+import { Bot } from 'grammy';
 import { GoogleGenerativeAI } from '@google/generative-ai';
-import { createServer } from 'http';
+import { createServer, IncomingMessage, ServerResponse } from 'http';
 import { buildSystemPrompt, getRandomDadJoke } from './core/personality.js';
 
 // Configuration
@@ -38,17 +38,12 @@ function validateConfig() {
   }
 }
 
-// Initialize services
-validateConfig();
-const bot = new Bot(config.telegram.token);
-const genAI = new GoogleGenerativeAI(config.gemini.apiKey);
-const model = genAI.getGenerativeModel({ 
-  model: 'gemini-2.0-flash-exp',
-  systemInstruction: buildSystemPrompt(),
-});
-
-// Simple HTTP server for Railway healthcheck
-const server = createServer((req, res) => {
+// ============================================
+// HTTP Health Server (starts FIRST for Railway)
+// ============================================
+const server = createServer((req: IncomingMessage, res: ServerResponse) => {
+  console.log(`📡 HTTP ${req.method} ${req.url}`);
+  
   if (req.url === '/' || req.url === '/health') {
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ 
@@ -57,9 +52,26 @@ const server = createServer((req, res) => {
       uptime: process.uptime()
     }));
   } else {
-    res.writeHead(404);
+    res.writeHead(404, { 'Content-Type': 'text/plain' });
     res.end('Not found');
   }
+});
+
+// Start health server immediately
+server.listen(config.port, '0.0.0.0', () => {
+  console.log(`🏥 Health server listening on 0.0.0.0:${config.port}`);
+});
+
+// ============================================
+// Telegram Bot Setup
+// ============================================
+validateConfig();
+
+const bot = new Bot(config.telegram.token);
+const genAI = new GoogleGenerativeAI(config.gemini.apiKey);
+const model = genAI.getGenerativeModel({ 
+  model: 'gemini-2.0-flash-exp',
+  systemInstruction: buildSystemPrompt(),
 });
 
 // Conversation history (in-memory for now, will move to Supabase)
@@ -171,24 +183,14 @@ process.on('SIGTERM', () => {
   process.exit(0);
 });
 
-// Start bot and health server
-async function main() {
-  console.log('🤖 SparkyBot starting up...');
-  console.log(`📱 Telegram: Restricted to user ID ${config.telegram.ownerUserId}`);
-  console.log(`🧠 AI: Gemini 2.0 Flash connected`);
-  
-  // Start HTTP server for healthcheck
-  server.listen(config.port, () => {
-    console.log(`🏥 Health server listening on port ${config.port}`);
-  });
-  
-  await bot.start({
-    onStart: (botInfo) => {
-      console.log(`✅ Bot running as @${botInfo.username}`);
-      console.log(`💬 Ready to assist!`);
-      console.log(`\n📍 Send a message to @${botInfo.username} to begin.\n`);
-    },
-  });
-}
+// Start Telegram bot (after health server is already running)
+console.log('🤖 SparkyBot starting up...');
+console.log(`📱 Telegram: Restricted to user ID ${config.telegram.ownerUserId}`);
+console.log(`🧠 AI: Gemini 2.0 Flash connected`);
 
-main().catch(console.error);
+bot.start({
+  onStart: (botInfo) => {
+    console.log(`✅ Bot running as @${botInfo.username}`);
+    console.log(`💬 Ready to assist!`);
+  },
+}).catch(console.error);
