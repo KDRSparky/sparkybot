@@ -166,8 +166,8 @@ Required integrations:
 - [x] User ID restriction
 - [x] Basic message handling
 - [x] Personality implementation
-- [ ] Supabase schema
-- [ ] Railway deployment
+- [x] Supabase schema deployed
+- [x] Railway deployment
 
 ### Phase 2: Core Skills
 - [ ] Intent classifier

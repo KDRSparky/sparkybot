@@ -386,3 +386,19 @@ export async function checkDatabaseConnection(): Promise<boolean> {
     return false;
   }
 }
+
+/**
+ * Get conversation history formatted for Gemini API
+ * Returns array in Gemini Content format: { role: 'user' | 'model', parts: [{ text }] }
+ */
+export async function getGeminiHistory(
+  chatId: string,
+  limit = 10
+): Promise<Array<{ role: 'user' | 'model'; parts: Array<{ text: string }> }>> {
+  const history = await getConversationHistory(chatId, limit);
+  
+  return history.map(msg => ({
+    role: msg.role === 'user' ? 'user' : 'model',
+    parts: [{ text: msg.content }],
+  }));
+}

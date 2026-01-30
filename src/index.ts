@@ -17,7 +17,8 @@ import {
   clearConversation, 
   checkDatabaseConnection,
   buildMemoryContext,
-  storeMarketReport 
+  storeMarketReport,
+  getGeminiHistory 
 } from './core/memory.js';
 import { isSupabaseConfigured } from './core/supabase.js';
 import { 
@@ -165,11 +166,15 @@ const model = genAI.getGenerativeModel({
 // Conversation history (in-memory for Gemini sessions)
 const chatSessions: Map<number, ReturnType<typeof model.startChat>> = new Map();
 
-// Get or create chat session
-function getChatSession(chatId: number) {
+// Get or create chat session with persistent history from Supabase
+async function getChatSession(chatId: number) {
   if (!chatSessions.has(chatId)) {
+    // Load conversation history from Supabase
+    const history = await getGeminiHistory(chatId.toString(), 10);
+    console.log(`📚 Loaded ${history.length} messages from history for chat ${chatId}`);
+    
     chatSessions.set(chatId, model.startChat({
-      history: [],
+      history: history,
     }));
   }
   return chatSessions.get(chatId)!;
@@ -395,7 +400,7 @@ bot.on('message:text', async (ctx) => {
     // Store user message
     await storeConversationMessage(chatId.toString(), 'user', originalMessage, 'general');
     
-    const chat = getChatSession(chatId);
+    const chat = await getChatSession(chatId);
     const result = await chat.sendMessage(originalMessage);
     const response = result.response.text();
     
