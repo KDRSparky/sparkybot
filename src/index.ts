@@ -194,10 +194,33 @@ bot.command('start', async (ctx) => {
     `/quote SYMBOL - Get stock quote\n` +
     `/market - Morning market report\n` +
     `/status - Bot status\n` +
+    `/help - All commands\n` +
     `/clear - Clear conversation\n\n` +
     `Or just talk to me naturally—I'll figure out what you need.\n\n` +
     `${getRandomDadJoke()}`
   , { parse_mode: 'Markdown' });
+});
+
+// Command: /help - Show available commands (no AI needed)
+bot.command('help', async (ctx) => {
+  await ctx.reply(
+    `📚 *SparkyBot Commands*\n\n` +
+    `*Market & Portfolio*\n` +
+    `/portfolio - View your portfolio summary\n` +
+    `/quote SYMBOL - Get stock quote (e.g. /quote NVDA)\n` +
+    `/market - Full market report with indices\n\n` +
+    `*General*\n` +
+    `/status - Check bot status\n` +
+    `/clear - Clear conversation history\n` +
+    `/help - Show this help message\n\n` +
+    `*Natural Language*\n` +
+    `You can also just chat naturally:\n` +
+    `• "How's my portfolio?"\n` +
+    `• "What's the price of Tesla?"\n` +
+    `• "Give me a market update"\n\n` +
+    `_Tip: Commands like /portfolio and /quote work even when the AI is busy!_`,
+    { parse_mode: 'Markdown' }
+  );
 });
 
 // Command: /status
@@ -347,6 +370,24 @@ bot.on('message:text', async (ctx) => {
     return;
   }
   
+  // Check for help/commands queries (avoid hitting AI)
+  if (message.includes('command') || message.includes('help') || message.includes('what can you do')) {
+    await ctx.reply(
+      `📚 *SparkyBot Commands*\n\n` +
+      `*Market & Portfolio*\n` +
+      `/portfolio - View your portfolio summary\n` +
+      `/quote SYMBOL - Get stock quote (e.g. /quote NVDA)\n` +
+      `/market - Full market report with indices\n\n` +
+      `*General*\n` +
+      `/status - Check bot status\n` +
+      `/clear - Clear conversation history\n` +
+      `/help - Show this help message\n\n` +
+      `Or just chat naturally - I understand questions about stocks, markets, and can help with general tasks!`,
+      { parse_mode: 'Markdown' }
+    );
+    return;
+  }
+  
   // Fall through to AI chat
   await ctx.replyWithChatAction('typing');
   
@@ -371,13 +412,31 @@ bot.on('message:text', async (ctx) => {
       await ctx.reply(response);
     }
     
-  } catch (error) {
+  } catch (error: any) {
     console.error('Gemini API error:', error);
-    await ctx.reply(
-      `Oops, I hit a snag processing that. Let me try again in a moment.\n\n` +
-      `_Error logged for review._`,
-      { parse_mode: 'Markdown' }
-    );
+    
+    // Check for rate limit error (429)
+    const isRateLimit = error?.status === 429 || 
+                        error?.message?.includes('429') || 
+                        error?.message?.includes('Resource exhausted') ||
+                        error?.message?.includes('Too Many Requests');
+    
+    if (isRateLimit) {
+      await ctx.reply(
+        `⏳ I'm a bit overwhelmed right now (AI rate limit hit).\n\n` +
+        `Please wait a minute and try again, or use these commands that work instantly:\n` +
+        `• /portfolio - Your holdings\n` +
+        `• /quote NVDA - Stock quotes\n` +
+        `• /market - Market report\n` +
+        `• /help - All commands`
+      );
+    } else {
+      await ctx.reply(
+        `Oops, I hit a snag processing that. Let me try again in a moment.\n\n` +
+        `_Error logged for review._`,
+        { parse_mode: 'Markdown' }
+      );
+    }
   }
 });
 
