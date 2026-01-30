@@ -28,6 +28,19 @@ import {
   getPortfolioPosition,
   loadPortfolio 
 } from './skills/market/index.js';
+import {
+  getUnreadEmails,
+  getRecentEmails,
+  getEmailThread,
+  formatEmailsSummary,
+  formatEmailDetail,
+  getVipEmails,
+  checkVipStatus,
+} from './skills/email/index.js';
+import {
+  getUpcomingEvents,
+  formatEventsSummary,
+} from './skills/calendar/index.js';
 import { 
   routeMessage, 
   initializeSkillRegistry, 
@@ -378,6 +391,65 @@ bot.on('message:text', async (ctx) => {
     await ctx.reply(quote, { parse_mode: 'Markdown' });
     await storeConversationMessage(chatId.toString(), 'user', originalMessage, 'market');
     await storeConversationMessage(chatId.toString(), 'assistant', quote, 'market');
+    return;
+  }
+  
+  // Email queries
+  if (message.includes('email') || message.includes('inbox') || message.includes('mail')) {
+    await ctx.replyWithChatAction('typing');
+    
+    try {
+      // Check if asking for VIP emails specifically
+      if (message.includes('vip') || message.includes('important')) {
+        const vipEmails = await getVipEmails(10);
+        if (vipEmails.length === 0) {
+          await ctx.reply('📭 No unread emails from VIPs right now. Your important contacts are quiet!');
+        } else {
+          const summary = formatEmailsSummary(vipEmails);
+          await ctx.reply(`⭐ *VIP Emails (${vipEmails.length})*\n\n${summary}`, { parse_mode: 'Markdown' });
+        }
+      } else {
+        // Get unread emails
+        const emails = await getUnreadEmails(15);
+        if (emails.length === 0) {
+          await ctx.reply('📭 Inbox zero! No unread emails right now.');
+        } else {
+          const vipCount = emails.filter(e => e.isVip).length;
+          const summary = formatEmailsSummary(emails);
+          let header = `📬 *Unread Emails (${emails.length})*`;
+          if (vipCount > 0) {
+            header += `\n⭐ _${vipCount} from VIPs_`;
+          }
+          await ctx.reply(`${header}\n\n${summary}`, { parse_mode: 'Markdown' });
+        }
+      }
+      
+      await storeConversationMessage(chatId.toString(), 'user', originalMessage, 'email');
+    } catch (error: any) {
+      console.error('Email error:', error);
+      await ctx.reply(`📧 Had trouble checking your email: ${error.message}\n\nMake sure Google is connected.`);
+    }
+    return;
+  }
+  
+  // Calendar queries
+  if (message.includes('calendar') || message.includes('schedule') || message.includes('meeting') || message.includes('events')) {
+    await ctx.replyWithChatAction('typing');
+    
+    try {
+      const events = await getUpcomingEvents(7); // Next 7 days
+      if (events.length === 0) {
+        await ctx.reply('📅 Your calendar is clear for the next week!');
+      } else {
+        const summary = formatEventsSummary(events);
+        await ctx.reply(`📅 *Upcoming Events*\n\n${summary}`, { parse_mode: 'Markdown' });
+      }
+      
+      await storeConversationMessage(chatId.toString(), 'user', originalMessage, 'calendar');
+    } catch (error: any) {
+      console.error('Calendar error:', error);
+      await ctx.reply(`📅 Had trouble checking your calendar: ${error.message}\n\nMake sure Google is connected.`);
+    }
     return;
   }
   
