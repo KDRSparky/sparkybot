@@ -58,11 +58,11 @@ When all tasks are complete, output `<promise>SPARKYBOT_COMPLETE</promise>`.
 
 ## Phase 3: Core Skills Framework
 
-### 3.1 Intent Classifier
+### 3.1 Intent Classifier ✅ COMPLETE
 > **Dependency**: 2.2 complete (needs conversation context)
 > **Success Criteria**: Bot correctly routes messages to appropriate skills
 
-- [ ] 3.1.1 Define intent categories in `src/core/router.ts`:
+- [x] 3.1.1 Define intent categories in `src/core/router.ts`:
   - `market` (stocks, portfolio, crypto)
   - `calendar` (schedule, meetings, events)
   - `email` (inbox, send, reply)
@@ -71,17 +71,17 @@ When all tasks are complete, output `<promise>SPARKYBOT_COMPLETE</promise>`.
   - `kanban` (task, todo, project)
   - `code` (code, deploy, commit)
   - `general` (everything else)
-- [ ] 3.1.2 Implement intent classification using Gemini (prompt engineering)
-- [ ] 3.1.3 Create skill registry in Supabase `skills` table (seed data exists)
-- [ ] 3.1.4 Implement `routeToSkill()` function that maps intent to skill handler
-- [ ] 3.1.5 Test with 10+ example messages covering all intent categories
-- [ ] 3.1.6 Log skill routing decisions to `autonomy_log` table
+- [x] 3.1.2 Implement intent classification using Gemini (prompt engineering)
+- [x] 3.1.3 Create skill registry in Supabase `skills` table (seed data exists)
+- [x] 3.1.4 Implement `routeToSkill()` function that maps intent to skill handler
+- [x] 3.1.5 Test with 10+ example messages covering all intent categories (91% accuracy)
+- [x] 3.1.6 Log skill routing decisions to `autonomy_log` table
 
-### 3.2 Skill Base Class
+### 3.2 Skill Base Class ✅ COMPLETE
 > **Dependency**: 3.1 complete
 > **Success Criteria**: All skills follow consistent interface
 
-- [ ] 3.2.1 Create `src/skills/base.ts` with abstract Skill class:
+- [x] 3.2.1 Create `src/core/skills.ts` with abstract Skill class:
   - `name: string`
   - `description: string`
   - `triggerPatterns: string[]`

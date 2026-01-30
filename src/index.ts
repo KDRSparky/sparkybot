@@ -28,6 +28,12 @@ import {
   getPortfolioPosition,
   loadPortfolio 
 } from './skills/market/index.js';
+import { 
+  routeMessage, 
+  initializeSkillRegistry, 
+  getSkill,
+  classifyIntentKeyword 
+} from './core/router.js';
 
 // Configuration
 const config = {
@@ -483,6 +489,10 @@ async function startup() {
   } else {
     console.log(`⚠️ Database: Not configured, using in-memory storage`);
   }
+  
+  // Initialize skill registry
+  await initializeSkillRegistry();
+  console.log(`🎯 Skill Router: Initialized`);
   
   bot.start({
     onStart: (botInfo) => {
