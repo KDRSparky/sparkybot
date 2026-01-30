@@ -28,6 +28,8 @@ import {
   getPortfolioPosition,
   loadPortfolio,
   generateOvernightAnalysis,
+  takePortfolioSnapshot,
+  formatPortfolioPerformance,
 } from './skills/market/index.js';
 import {
   getUnreadEmails,
@@ -112,6 +114,15 @@ const server = createServer(async (req: IncomingMessage, res: ServerResponse) =>
           if (reportType === 'overnight') {
             try {
               console.log('🌙 Generating overnight analysis...');
+              
+              // Take portfolio snapshot first
+              const snapshot = await takePortfolioSnapshot();
+              if (snapshot.success) {
+                console.log(`📸 Portfolio snapshot saved: ${snapshot.totalValue?.toLocaleString()}`);
+              } else {
+                console.warn('⚠️ Failed to save portfolio snapshot:', snapshot.error);
+              }
+              
               const analysis = await generateOvernightAnalysis();
               
               // Upload to Google Drive
@@ -400,6 +411,30 @@ bot.command('market', async (ctx) => {
   }
 });
 
+// Command: /performance - Get portfolio performance history
+bot.command('performance', async (ctx) => {
+  await ctx.replyWithChatAction('typing');
+  
+  try {
+    // Check for optional days parameter: /performance 7 or /performance 90
+    const args = ctx.message?.text.split(' ') || [];
+    const days = args[1] ? parseInt(args[1], 10) : 30;
+    
+    if (isNaN(days) || days < 1 || days > 365) {
+      await ctx.reply('Usage: /performance [days]\n\nExamples:\n/performance - Last 30 days\n/performance 7 - Last week\n/performance 90 - Last quarter');
+      return;
+    }
+    
+    const performance = await formatPortfolioPerformance(days);
+    await ctx.reply(performance, { parse_mode: 'Markdown' });
+    
+    await storeConversationMessage(ctx.chat.id.toString(), 'user', `/performance ${days}`, 'market');
+  } catch (error: any) {
+    console.error('Performance error:', error);
+    await ctx.reply(`Had trouble loading performance data: ${error.message}`);
+  }
+});
+
 // Main message handler - Natural language processing
 bot.on('message:text', async (ctx) => {
   if (!ctx.message) return;
@@ -435,6 +470,23 @@ bot.on('message:text', async (ctx) => {
     await ctx.reply(quote, { parse_mode: 'Markdown' });
     await storeConversationMessage(chatId.toString(), 'user', originalMessage, 'market');
     await storeConversationMessage(chatId.toString(), 'assistant', quote, 'market');
+    return;
+  }
+  
+  // Portfolio performance queries
+  if ((message.includes('portfolio') || message.includes('performance')) && 
+      (message.includes('perform') || message.includes('month') || message.includes('week') || message.includes('history'))) {
+    await ctx.replyWithChatAction('typing');
+    
+    // Try to extract time period
+    let days = 30;
+    if (message.includes('week')) days = 7;
+    else if (message.includes('quarter')) days = 90;
+    else if (message.includes('year')) days = 365;
+    
+    const performance = await formatPortfolioPerformance(days);
+    await ctx.reply(performance, { parse_mode: 'Markdown' });
+    await storeConversationMessage(chatId.toString(), 'user', originalMessage, 'market');
     return;
   }
   

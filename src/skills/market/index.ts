@@ -12,6 +12,7 @@
 
 import { readFileSync, existsSync } from 'fs';
 import { join } from 'path';
+import { supabase, isSupabaseConfigured } from '../../core/supabase.js';
 
 // Types
 export interface Position {
@@ -689,4 +690,175 @@ export async function generateOvernightAnalysis(): Promise<{
     content,
     summary: telegramSummary,
   };
+}
+
+/**
+ * Take a portfolio snapshot and store in Supabase
+ * Called during overnight analysis to track historical performance
+ */
+export async function takePortfolioSnapshot(): Promise<{
+  success: boolean;
+  snapshotId?: string;
+  totalValue?: number;
+  dailyChange?: number;
+  dailyChangePct?: number;
+  error?: string;
+}> {
+  if (!isSupabaseConfigured || !supabase) {
+    return { success: false, error: 'Supabase not configured' };
+  }
+
+  try {
+    // Load and update portfolio with live prices
+    const positions = loadPortfolio();
+    const updatedPositions = await updatePortfolioPrices(positions);
+    const summary = calculatePortfolioSummary(updatedPositions);
+
+    // Get today's date in CT timezone
+    const today = new Date().toLocaleDateString('en-CA', { timeZone: USER_TIMEZONE }); // YYYY-MM-DD format
+
+    // Check if we already have a snapshot for today
+    const { data: existing } = await supabase
+      .from('portfolio_snapshots')
+      .select('id')
+      .eq('snapshot_date', today)
+      .single();
+
+    if (existing) {
+      // Update existing snapshot
+      const { data, error } = await supabase
+        .from('portfolio_snapshots')
+        .update({
+          holdings: updatedPositions,
+          total_value: summary.totalValue,
+          daily_change: summary.dayChange,
+          daily_change_pct: summary.dayChangePct,
+        })
+        .eq('id', existing.id)
+        .select()
+        .single();
+
+      if (error) throw error;
+
+      console.log(`📸 Updated portfolio snapshot for ${today}: ${summary.totalValue.toLocaleString()}`);
+      return {
+        success: true,
+        snapshotId: data.id,
+        totalValue: summary.totalValue,
+        dailyChange: summary.dayChange,
+        dailyChangePct: summary.dayChangePct,
+      };
+    } else {
+      // Create new snapshot
+      const { data, error } = await supabase
+        .from('portfolio_snapshots')
+        .insert({
+          snapshot_date: today,
+          holdings: updatedPositions,
+          total_value: summary.totalValue,
+          daily_change: summary.dayChange,
+          daily_change_pct: summary.dayChangePct,
+        })
+        .select()
+        .single();
+
+      if (error) throw error;
+
+      console.log(`📸 Created portfolio snapshot for ${today}: ${summary.totalValue.toLocaleString()}`);
+      return {
+        success: true,
+        snapshotId: data.id,
+        totalValue: summary.totalValue,
+        dailyChange: summary.dayChange,
+        dailyChangePct: summary.dayChangePct,
+      };
+    }
+  } catch (error: any) {
+    console.error('Error taking portfolio snapshot:', error);
+    return { success: false, error: error.message };
+  }
+}
+
+/**
+ * Get portfolio history for trend analysis
+ */
+export async function getPortfolioHistory(days: number = 30): Promise<Array<{
+  date: string;
+  totalValue: number;
+  dailyChange: number;
+  dailyChangePct: number;
+}>> {
+  if (!isSupabaseConfigured || !supabase) {
+    return [];
+  }
+
+  try {
+    const startDate = new Date();
+    startDate.setDate(startDate.getDate() - days);
+    const startDateStr = startDate.toISOString().split('T')[0];
+
+    const { data, error } = await supabase
+      .from('portfolio_snapshots')
+      .select('snapshot_date, total_value, daily_change, daily_change_pct')
+      .gte('snapshot_date', startDateStr)
+      .order('snapshot_date', { ascending: true });
+
+    if (error) throw error;
+
+    return (data || []).map(row => ({
+      date: row.snapshot_date,
+      totalValue: row.total_value,
+      dailyChange: row.daily_change,
+      dailyChangePct: row.daily_change_pct,
+    }));
+  } catch (error) {
+    console.error('Error getting portfolio history:', error);
+    return [];
+  }
+}
+
+/**
+ * Format portfolio performance over a time period
+ */
+export async function formatPortfolioPerformance(days: number = 30): Promise<string> {
+  const history = await getPortfolioHistory(days);
+
+  if (history.length === 0) {
+    return `📊 No portfolio history available yet. Snapshots are taken daily at 5am CT.`;
+  }
+
+  const formatCurrency = (n: number) =>
+    new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(n);
+
+  const formatPct = (n: number) => {
+    if (isNaN(n) || !isFinite(n)) return '0.00%';
+    return `${n >= 0 ? '+' : ''}${n.toFixed(2)}%`;
+  };
+
+  const first = history[0];
+  const last = history[history.length - 1];
+  const periodChange = last.totalValue - first.totalValue;
+  const periodChangePct = (periodChange / first.totalValue) * 100;
+
+  // Calculate high/low
+  const highValue = Math.max(...history.map(h => h.totalValue));
+  const lowValue = Math.min(...history.map(h => h.totalValue));
+  const highDate = history.find(h => h.totalValue === highValue)?.date;
+  const lowDate = history.find(h => h.totalValue === lowValue)?.date;
+
+  // Count up/down days
+  const upDays = history.filter(h => h.dailyChange > 0).length;
+  const downDays = history.filter(h => h.dailyChange < 0).length;
+  const flatDays = history.filter(h => h.dailyChange === 0).length;
+
+  let response = `📊 **Portfolio Performance (${days} Days)**\n\n`;
+  response += `**Current Value:** ${formatCurrency(last.totalValue)}\n`;
+  response += `**Period Change:** ${formatCurrency(periodChange)} (${formatPct(periodChangePct)})\n\n`;
+  response += `**Range:**\n`;
+  response += `  📈 High: ${formatCurrency(highValue)} (${highDate})\n`;
+  response += `  📉 Low: ${formatCurrency(lowValue)} (${lowDate})\n\n`;
+  response += `**Trading Days:** ${history.length}\n`;
+  response += `  ✅ Up: ${upDays} | ❌ Down: ${downDays} | ➖ Flat: ${flatDays}\n`;
+
+  return response;
 }

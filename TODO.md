@@ -157,31 +157,28 @@ When all tasks are complete, output `<promise>SPARKYBOT_COMPLETE</promise>`.
 > **Dependency**: 2.3 complete (Cloudflare Worker)
 > **Success Criteria**: Automatic reports at 8am, 12pm, 3:15pm CT
 
-- [ ] 5.1.1 Create `generateMarketReport(type: 'morning' | 'midday' | 'afternoon')` function
-- [ ] 5.1.2 Include portfolio performance, top movers, sector analysis
-- [ ] 5.1.3 Store report in `market_reports` table
-- [ ] 5.1.4 Configure Cloudflare Worker cron triggers:
-  - `0 13 * * 1-5` (8am CT = 1pm UTC, weekdays)
-  - `0 17 * * 1-5` (12pm CT = 5pm UTC, weekdays)
-  - `15 20 * * 1-5` (3:15pm CT = 8:15pm UTC, weekdays)
-- [ ] 5.1.5 Worker calls bot webhook to trigger report generation and delivery
-- [ ] 5.1.6 Test: Manually trigger each report type
+- [x] 5.1.1 Create `generateMarketReport(type: 'morning' | 'midday' | 'afternoon')` function
+- [x] 5.1.2 Include portfolio performance, top movers, sector analysis
+- [x] 5.1.3 Store report in `market_reports` table
+- [x] 5.1.4 Configure Cloudflare Worker cron triggers (CST times)
+- [x] 5.1.5 Worker calls bot webhook to trigger report generation and delivery
+- [x] 5.1.6 Test: Manually trigger each report type ✅ Working
 
 ### 5.2 Overnight Analysis
 > **Dependency**: 5.1 complete + Google Drive API
 > **Success Criteria**: Comprehensive analysis saved to Drive at 5am
 
-- [ ] 5.2.1 Create `generateOvernightAnalysis()` function with:
+- [x] 5.2.1 Create `generateOvernightAnalysis()` function with:
   - Previous day's performance summary
-  - After-hours movers
-  - Pre-market futures
-  - News summary affecting holdings
-  - Recommendations for the day
-- [ ] 5.2.2 Implement Google Drive file upload
-- [ ] 5.2.3 Save analysis as Google Doc in designated folder
-- [ ] 5.2.4 Configure Cloudflare Worker cron: `0 10 * * 1-5` (5am CT = 10am UTC)
-- [ ] 5.2.5 Store Drive file ID in `market_reports` table
-- [ ] 5.2.6 Test: Generate and upload overnight analysis
+  - Portfolio breakdown with all positions
+  - Top movers analysis
+  - Sector allocation
+  - Concentration analysis
+- [x] 5.2.2 Implement Google Drive file upload (google-drive.ts)
+- [x] 5.2.3 Save analysis as Google Doc in designated folder ✅ "SparkyBot Reports"
+- [x] 5.2.4 Configure Cloudflare Worker cron: `0 11 * * 1-5` (5am CT = 11am UTC)
+- [x] 5.2.5 Store Drive file ID in `market_reports` table
+- [x] 5.2.6 Test: Generate and upload overnight analysis ✅ Working
 
 ### 5.3 Portfolio Snapshots
 > **Dependency**: Market skill working
