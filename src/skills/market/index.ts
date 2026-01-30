@@ -537,3 +537,156 @@ export async function getPortfolioOverview(): Promise<string> {
 
   return response;
 }
+
+/**
+ * Generate comprehensive overnight analysis
+ * This is a detailed report saved to Google Drive at 5am
+ */
+export async function generateOvernightAnalysis(): Promise<{
+  content: string;
+  summary: string;
+}> {
+  const reportDate = new Date().toLocaleDateString('en-US', {
+    timeZone: USER_TIMEZONE,
+    weekday: 'long',
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric',
+  });
+
+  // Load portfolio and get live prices
+  const positions = loadPortfolio();
+  const updatedPositions = await updatePortfolioPrices(positions);
+  const summary = calculatePortfolioSummary(updatedPositions);
+
+  // Get market data
+  const indices = await getMarketIndices();
+  const [bitcoin, ethereum] = await Promise.all([
+    getCryptoPrice('bitcoin'),
+    getCryptoPrice('ethereum'),
+  ]);
+
+  // Formatting helpers
+  const formatCurrency = (n: number) =>
+    new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(n);
+
+  const formatPct = (n: number) => {
+    if (isNaN(n) || !isFinite(n)) return '0.00%';
+    return `${n >= 0 ? '+' : ''}${n.toFixed(2)}%`;
+  };
+
+  const formatChange = (n: number, pct: number) => {
+    const safeN = isNaN(n) || !isFinite(n) ? 0 : n;
+    const safePct = isNaN(pct) || !isFinite(pct) ? 0 : pct;
+    if (safeN === 0 && safePct === 0) return 'No change';
+    return `${safeN >= 0 ? '+' : ''}${formatCurrency(safeN)} (${formatPct(safePct)})`;
+  };
+
+  // Build the comprehensive report
+  let content = `# SparkyBot Overnight Market Analysis\n`;
+  content += `## ${reportDate}\n\n`;
+
+  // Executive Summary
+  content += `## Executive Summary\n\n`;
+  content += `Your portfolio closed at **${formatCurrency(summary.totalValue)}** `;
+  content += `with a day change of ${formatChange(summary.dayChange, summary.dayChangePct)}.\n\n`;
+  content += `Total unrealized gain: ${formatChange(summary.totalGain, summary.totalGainPct)}\n\n`;
+
+  // Market Overview
+  content += `## Market Overview\n\n`;
+  content += `| Index | Close | Change |\n`;
+  content += `|-------|-------|--------|\n`;
+  if (indices.sp500) {
+    content += `| S&P 500 | ${formatCurrency(indices.sp500.price)} | ${formatChange(indices.sp500.change, indices.sp500.changePct)} |\n`;
+  }
+  if (indices.nasdaq) {
+    content += `| NASDAQ | ${formatCurrency(indices.nasdaq.price)} | ${formatChange(indices.nasdaq.change, indices.nasdaq.changePct)} |\n`;
+  }
+  if (indices.dow) {
+    content += `| DOW | ${formatCurrency(indices.dow.price)} | ${formatChange(indices.dow.change, indices.dow.changePct)} |\n`;
+  }
+  content += `\n`;
+
+  // Crypto
+  content += `## Cryptocurrency\n\n`;
+  if (bitcoin) {
+    content += `**Bitcoin**: ${formatCurrency(bitcoin.price)} (${formatPct(bitcoin.changePct)} 24h)\n\n`;
+  }
+  if (ethereum) {
+    content += `**Ethereum**: ${formatCurrency(ethereum.price)} (${formatPct(ethereum.changePct)} 24h)\n\n`;
+  }
+
+  // Portfolio Details
+  content += `## Portfolio Breakdown\n\n`;
+  content += `| Symbol | Shares | Price | Value | Day Change | Total Gain |\n`;
+  content += `|--------|--------|-------|-------|------------|------------|\n`;
+
+  const sortedByValue = [...updatedPositions].sort((a, b) => (b.currentValue || 0) - (a.currentValue || 0));
+  for (const pos of sortedByValue.slice(0, 20)) {
+    const currentPrice = pos.currentPrice || pos.lastPrice;
+    const dayChg = pos.dayChangePct !== undefined ? formatPct(pos.dayChangePct) : 'N/A';
+    const totalGainPct = pos.totalGainPct !== undefined ? formatPct(pos.totalGainPct) : 'N/A';
+    content += `| ${pos.symbol} | ${pos.quantity.toFixed(2)} | ${formatCurrency(currentPrice)} | ${formatCurrency(pos.currentValue || 0)} | ${dayChg} | ${totalGainPct} |\n`;
+  }
+  content += `\n`;
+
+  // Top Movers
+  content += `## Top Movers\n\n`;
+
+  if (summary.topGainers.length > 0) {
+    content += `### Top Gainers\n\n`;
+    for (const pos of summary.topGainers.slice(0, 5)) {
+      if (pos.dayChangePct && pos.dayChangePct > 0) {
+        content += `- **${pos.symbol}**: ${formatPct(pos.dayChangePct)} (+${formatCurrency(pos.dayChange || 0)})\n`;
+      }
+    }
+    content += `\n`;
+  }
+
+  if (summary.topLosers.length > 0) {
+    content += `### Top Losers\n\n`;
+    for (const pos of summary.topLosers.slice(0, 5)) {
+      if (pos.dayChangePct && pos.dayChangePct < 0) {
+        content += `- **${pos.symbol}**: ${formatPct(pos.dayChangePct)} (${formatCurrency(pos.dayChange || 0)})\n`;
+      }
+    }
+    content += `\n`;
+  }
+
+  // Sector Allocation
+  content += `## Sector Allocation\n\n`;
+  content += `| Sector | Value | % of Portfolio |\n`;
+  content += `|--------|-------|----------------|\n`;
+  const sortedSectors = Object.entries(summary.sectorBreakdown).sort((a, b) => b[1] - a[1]);
+  for (const [sector, value] of sortedSectors) {
+    const pct = (value / summary.totalValue) * 100;
+    content += `| ${sector} | ${formatCurrency(value)} | ${pct.toFixed(1)}% |\n`;
+  }
+  content += `\n`;
+
+  // Concentration Analysis
+  content += `## Concentration Analysis\n\n`;
+  const top5Value = sortedByValue.slice(0, 5).reduce((sum, p) => sum + (p.currentValue || 0), 0);
+  const top10Value = sortedByValue.slice(0, 10).reduce((sum, p) => sum + (p.currentValue || 0), 0);
+  content += `- **Top 5 holdings**: ${formatCurrency(top5Value)} (${((top5Value / summary.totalValue) * 100).toFixed(1)}% of portfolio)\n`;
+  content += `- **Top 10 holdings**: ${formatCurrency(top10Value)} (${((top10Value / summary.totalValue) * 100).toFixed(1)}% of portfolio)\n`;
+  content += `- **Total positions**: ${positions.length}\n\n`;
+
+  // Recommendations placeholder
+  content += `## Notes\n\n`;
+  content += `_This report was automatically generated by SparkyBot at 5:00 AM CT._\n\n`;
+  content += `---\n\n`;
+  content += `*Report generated: ${new Date().toLocaleString('en-US', { timeZone: USER_TIMEZONE })}*\n`;
+
+  // Create a short summary for Telegram
+  const telegramSummary = `📊 **Overnight Analysis Ready**\n\n` +
+    `Portfolio: ${formatCurrency(summary.totalValue)}\n` +
+    `Day Change: ${formatChange(summary.dayChange, summary.dayChangePct)}\n` +
+    `Total Gain: ${formatChange(summary.totalGain, summary.totalGainPct)}\n\n` +
+    `_Full report saved to Google Drive_`;
+
+  return {
+    content,
+    summary: telegramSummary,
+  };
+}

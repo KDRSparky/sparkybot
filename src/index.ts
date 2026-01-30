@@ -26,7 +26,8 @@ import {
   getQuickQuote, 
   getPortfolioOverview,
   getPortfolioPosition,
-  loadPortfolio 
+  loadPortfolio,
+  generateOvernightAnalysis,
 } from './skills/market/index.js';
 import {
   getUnreadEmails,
@@ -51,6 +52,7 @@ import {
   getSkill,
   classifyIntentKeyword 
 } from './core/router.js';
+import { uploadAsGoogleDoc } from './services/google-drive.js';
 
 // Configuration
 const config = {
@@ -105,14 +107,52 @@ const server = createServer(async (req: IncomingMessage, res: ServerResponse) =>
         
         if (data.action === 'market_report') {
           const reportType = data.type || 'morning';
-          const report = await generateMarketReport(reportType);
-          await sendTelegramMessage(report);
           
-          // Store in database
-          await storeMarketReport(reportType, { text: report }, 'telegram');
-          
-          res.writeHead(200);
-          res.end('Report sent');
+          // Handle overnight analysis differently - save to Google Drive
+          if (reportType === 'overnight') {
+            try {
+              console.log('🌙 Generating overnight analysis...');
+              const analysis = await generateOvernightAnalysis();
+              
+              // Upload to Google Drive
+              const dateStr = new Date().toISOString().split('T')[0];
+              const fileName = `Market Analysis - ${dateStr}`;
+              const uploadResult = await uploadAsGoogleDoc(fileName, analysis.content);
+              
+              if (uploadResult) {
+                // Send summary to Telegram with Drive link
+                const message = `${analysis.summary}\n\n📄 [Open full report](${uploadResult.webViewLink})`;
+                await sendTelegramMessage(message);
+                
+                // Store in database with Drive file ID
+                await storeMarketReport('overnight', { text: analysis.summary }, 'telegram', uploadResult.fileId);
+                
+                console.log(`✅ Overnight analysis saved to Drive: ${uploadResult.fileId}`);
+              } else {
+                // Fallback: send summary only
+                await sendTelegramMessage(analysis.summary + '\n\n⚠️ _Could not save to Google Drive_');
+                await storeMarketReport('overnight', { text: analysis.summary }, 'telegram');
+              }
+              
+              res.writeHead(200);
+              res.end('Overnight analysis sent');
+            } catch (error: any) {
+              console.error('Overnight analysis error:', error);
+              await sendTelegramMessage(`⚠️ Overnight analysis failed: ${error.message}`);
+              res.writeHead(500);
+              res.end('Error generating overnight analysis');
+            }
+          } else {
+            // Regular market reports (morning, midday, afternoon)
+            const report = await generateMarketReport(reportType);
+            await sendTelegramMessage(report);
+            
+            // Store in database
+            await storeMarketReport(reportType, { text: report }, 'telegram');
+            
+            res.writeHead(200);
+            res.end('Report sent');
+          }
         } else {
           res.writeHead(400);
           res.end('Unknown action');
