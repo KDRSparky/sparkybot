@@ -10,7 +10,7 @@
 
 import { gmail_v1 } from 'googleapis';
 import { getGmailService, PRIMARY_EMAIL } from '../../services/google-auth.js';
-import { isVipEmail, getVipContacts, suggestVipContact } from '../../services/supabase.js';
+import { supabase, isSupabaseConfigured } from '../../core/supabase.js';
 
 export interface Email {
   id: string;
@@ -70,12 +70,24 @@ async function loadVipCache(): Promise<Set<string>> {
     return vipEmailCache;
   }
 
+  if (!isSupabaseConfigured || !supabase) {
+    console.warn('Supabase not configured, VIP cache empty');
+    return new Set();
+  }
+
   try {
-    const vipContacts = await getVipContacts();
+    const { data, error } = await supabase
+      .from('vip_contacts')
+      .select('*')
+      .eq('confirmed', true)
+      .order('priority', { ascending: true });
+
+    if (error) throw error;
+
     vipEmailCache = new Set(
-      vipContacts
-        .filter(c => c.email)
-        .map(c => c.email!.toLowerCase())
+      (data || [])
+        .filter((c: any) => c.email)
+        .map((c: any) => c.email!.toLowerCase())
     );
     vipCacheExpiry = Date.now() + VIP_CACHE_TTL;
     return vipEmailCache;
@@ -786,12 +798,33 @@ export interface VipContact {
 }
 
 /**
+ * Get all VIP contacts from database
+ */
+export async function getVipContacts(): Promise<VipContact[]> {
+  if (!isSupabaseConfigured || !supabase) {
+    console.warn('Supabase not configured, cannot get VIP contacts');
+    return [];
+  }
+
+  const { data, error } = await supabase
+    .from('vip_contacts')
+    .select('*')
+    .eq('confirmed', true)
+    .order('priority', { ascending: true });
+
+  if (error) throw error;
+  return (data || []) as VipContact[];
+}
+
+/**
  * Add a VIP contact
  */
 export async function addVipContact(contact: VipContact): Promise<void> {
-  const { getSupabase } = await import('../../services/supabase.js');
+  if (!isSupabaseConfigured || !supabase) {
+    throw new Error('Supabase not configured, cannot add VIP contact');
+  }
   
-  const { error } = await getSupabase()
+  const { error } = await supabase
     .from('vip_contacts')
     .insert({
       name: contact.name,
@@ -815,9 +848,11 @@ export async function addVipContact(contact: VipContact): Promise<void> {
  * Remove a VIP contact by email
  */
 export async function removeVipContact(email: string): Promise<boolean> {
-  const { getSupabase } = await import('../../services/supabase.js');
+  if (!isSupabaseConfigured || !supabase) {
+    throw new Error('Supabase not configured, cannot remove VIP contact');
+  }
   
-  const { data, error } = await getSupabase()
+  const { data, error } = await supabase
     .from('vip_contacts')
     .delete()
     .eq('email', email.toLowerCase())
@@ -835,8 +870,7 @@ export async function removeVipContact(email: string): Promise<boolean> {
  * List all VIP contacts
  */
 export async function listVipContacts(): Promise<VipContact[]> {
-  const contacts = await getVipContacts();
-  return contacts as VipContact[];
+  return await getVipContacts();
 }
 
 /**
@@ -848,20 +882,32 @@ export async function suggestAsVip(
   email: string,
   reason: string
 ): Promise<void> {
-  await suggestVipContact({
-    name,
-    email: email.toLowerCase(),
-    reason,
-  });
+  if (!isSupabaseConfigured || !supabase) {
+    throw new Error('Supabase not configured, cannot suggest VIP');
+  }
+
+  const { error } = await supabase
+    .from('vip_contacts')
+    .insert({
+      name,
+      email: email.toLowerCase(),
+      notes: reason,
+      suggested_by_bot: true,
+      confirmed: false,
+    });
+
+  if (error) throw error;
 }
 
 /**
  * Confirm a suggested VIP contact
  */
 export async function confirmVipSuggestion(email: string): Promise<boolean> {
-  const { getSupabase } = await import('../../services/supabase.js');
+  if (!isSupabaseConfigured || !supabase) {
+    throw new Error('Supabase not configured, cannot confirm VIP');
+  }
   
-  const { data, error } = await getSupabase()
+  const { data, error } = await supabase
     .from('vip_contacts')
     .update({ confirmed: true })
     .eq('email', email.toLowerCase())
@@ -881,9 +927,11 @@ export async function confirmVipSuggestion(email: string): Promise<boolean> {
  * Get pending VIP suggestions (unconfirmed)
  */
 export async function getPendingVipSuggestions(): Promise<VipContact[]> {
-  const { getSupabase } = await import('../../services/supabase.js');
+  if (!isSupabaseConfigured || !supabase) {
+    return [];
+  }
   
-  const { data, error } = await getSupabase()
+  const { data, error } = await supabase
     .from('vip_contacts')
     .select('*')
     .eq('suggested_by_bot', true)
