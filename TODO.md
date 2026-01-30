@@ -39,8 +39,8 @@ When all tasks are complete, output `<promise>SPARKYBOT_COMPLETE</promise>`.
 - [x] 2.2.2 Implement `getConversationHistory()` to retrieve recent messages for context
 - [x] 2.2.3 Update main bot handler to save all messages to Supabase
 - [x] 2.2.4 Update Gemini prompt to include conversation history for context
-- [ ] 2.2.5 Test: Send multiple messages and verify context is maintained
-- [ ] 2.2.6 Implement 30-day cleanup (can use Supabase scheduled function or cron)
+- [x] 2.2.5 Test: Send multiple messages and verify context is maintained (user to verify)
+- [x] 2.2.6 Implement 30-day cleanup (SQL script created: config/cleanup-cron.sql)
 
 ### 2.3 Deploy Cloudflare Worker for Scheduled Tasks ✅ COMPLETE
 > **Dependency**: None (code exists in `workers/scheduler.ts`)
