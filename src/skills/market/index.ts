@@ -74,6 +74,45 @@ export interface MarketReport {
 // Portfolio file path
 const PORTFOLIO_PATH = join(process.cwd(), 'data', 'portfolio.csv');
 
+// User timezone
+const USER_TIMEZONE = 'America/Chicago';
+
+/**
+ * Get current market status based on time
+ */
+export function getMarketStatus(): string {
+  const now = new Date();
+  const centralTime = new Date(now.toLocaleString('en-US', { timeZone: USER_TIMEZONE }));
+  const hour = centralTime.getHours();
+  const minute = centralTime.getMinutes();
+  const day = centralTime.getDay(); // 0 = Sunday, 6 = Saturday
+  
+  // Weekend
+  if (day === 0 || day === 6) {
+    return '🏝️ Markets closed (Weekend)';
+  }
+  
+  const timeInMinutes = hour * 60 + minute;
+  
+  // Pre-market: 4:00 AM - 8:30 AM CT (7:00 AM - 9:30 AM ET)
+  if (timeInMinutes >= 4 * 60 && timeInMinutes < 8 * 60 + 30) {
+    return '🌅 Pre-market trading';
+  }
+  
+  // Regular hours: 8:30 AM - 3:00 PM CT (9:30 AM - 4:00 PM ET)
+  if (timeInMinutes >= 8 * 60 + 30 && timeInMinutes < 15 * 60) {
+    return '🟢 Markets open';
+  }
+  
+  // After-hours: 3:00 PM - 7:00 PM CT (4:00 PM - 8:00 PM ET)
+  if (timeInMinutes >= 15 * 60 && timeInMinutes < 19 * 60) {
+    return '🌙 After-hours trading';
+  }
+  
+  // Closed
+  return '🔴 Markets closed';
+}
+
 /**
  * Load portfolio from CSV file
  */
@@ -132,16 +171,21 @@ export async function getStockQuote(symbol: string): Promise<MarketData | null> 
     const meta = result.meta;
     const quote = result.indicators?.quote?.[0];
 
+    const price = meta.regularMarketPrice || meta.previousClose || 0;
+    const previousClose = meta.previousClose || price;
+    const change = price && previousClose ? price - previousClose : 0;
+    const changePct = previousClose ? (change / previousClose) * 100 : 0;
+
     return {
       symbol: meta.symbol,
-      price: meta.regularMarketPrice,
-      change: meta.regularMarketPrice - meta.previousClose,
-      changePct: ((meta.regularMarketPrice - meta.previousClose) / meta.previousClose) * 100,
+      price,
+      change: isNaN(change) ? 0 : change,
+      changePct: isNaN(changePct) ? 0 : changePct,
       volume: meta.regularMarketVolume,
       high: quote?.high?.[0],
       low: quote?.low?.[0],
       open: quote?.open?.[0],
-      previousClose: meta.previousClose,
+      previousClose,
     };
   } catch (error) {
     console.error(`Error fetching quote for ${symbol}:`, error);
@@ -328,14 +372,26 @@ export async function generateMarketReport(type: MarketReport['type']): Promise<
   const formatCurrency = (n: number) => 
     new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(n);
   
-  const formatPct = (n: number) => 
-    `${n >= 0 ? '+' : ''}${n.toFixed(2)}%`;
+  const formatPct = (n: number) => {
+    if (isNaN(n) || !isFinite(n)) return '0.00%';
+    return `${n >= 0 ? '+' : ''}${n.toFixed(2)}%`;
+  };
 
-  const formatChange = (n: number, pct: number) =>
-    `${n >= 0 ? '📈' : '📉'} ${formatCurrency(Math.abs(n))} (${formatPct(pct)})`;
+  const formatChange = (n: number, pct: number) => {
+    const safeN = isNaN(n) || !isFinite(n) ? 0 : n;
+    const safePct = isNaN(pct) || !isFinite(pct) ? 0 : pct;
+    if (safeN === 0 && safePct === 0) {
+      return '➖ No change';
+    }
+    return `${safeN >= 0 ? '📈' : '📉'} ${formatCurrency(Math.abs(safeN))} (${formatPct(safePct)})`;
+  };
 
   let report = `📊 **${type.charAt(0).toUpperCase() + type.slice(1)} Market Report**\n`;
-  report += `${reportTime}\n\n`;
+  report += `${reportTime}\n`;
+  
+  // Add market status
+  const marketStatus = getMarketStatus();
+  report += `_${marketStatus}_\n\n`;
 
   // Market Overview
   report += `**🌍 Market Overview**\n`;
