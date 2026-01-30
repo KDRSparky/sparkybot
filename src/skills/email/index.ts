@@ -43,6 +43,9 @@ export interface EmailSkillConfig {
   summaryFormat: 'brief' | 'detailed';
 }
 
+// User timezone (Central Time)
+const USER_TIMEZONE = 'America/Chicago';
+
 export const DEFAULT_CONFIG: EmailSkillConfig = {
   accounts: [
     'johndempsey@johndempsey.us',
@@ -575,6 +578,7 @@ export function formatEmailsSummary(emails: Email[]): string {
       weekday: 'short',
       month: 'short',
       day: 'numeric',
+      timeZone: USER_TIMEZONE,
     });
 
     if (emailDate !== currentDate) {
@@ -587,6 +591,7 @@ export function formatEmailsSummary(emails: Email[]): string {
       hour: 'numeric',
       minute: '2-digit',
       hour12: true,
+      timeZone: USER_TIMEZONE,
     });
 
     const readIndicator = email.isRead ? '' : '🔵 ';
@@ -620,6 +625,7 @@ export function formatEmailDetail(email: Email): string {
     hour: 'numeric',
     minute: '2-digit',
     hour12: true,
+    timeZone: USER_TIMEZONE,
   })}`);
   lines.push('');
   lines.push('---');
