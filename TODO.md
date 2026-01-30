@@ -113,18 +113,18 @@ When all tasks are complete, output `<promise>SPARKYBOT_COMPLETE</promise>`.
   - johndempsey@johndempsey.us ✅
   - kdrsparky@gmail.com ✅
 
-### 4.2 Calendar Skill
+### 4.2 Calendar Skill ✅ COMPLETE
 > **Dependency**: 4.1 complete
 > **Success Criteria**: Bot can read/create calendar events
 
-- [ ] 4.2.1 Implement Google OAuth token refresh in `src/services/google-auth.ts`
-- [ ] 4.2.2 Store refresh tokens securely in Supabase `preferences` table
-- [ ] 4.2.3 Implement `getUpcomingEvents(days: number)` in `src/skills/calendar/index.ts`
-- [ ] 4.2.4 Implement `createEvent(title, start, end, attendees?)` 
-- [ ] 4.2.5 Implement `findFreeSlots(duration, dateRange)`
+- [x] 4.2.1 Implement Google OAuth token refresh in `src/services/google-auth.ts`
+- [x] 4.2.2 Store refresh tokens securely in Supabase `preferences` table
+- [x] 4.2.3 Implement `getUpcomingEvents(days: number)` in `src/skills/calendar/index.ts`
+- [x] 4.2.4 Implement `createEvent(title, start, end, attendees?)` 
+- [x] 4.2.5 Implement `findFreeSlots(duration, dateRange)`
 - [ ] 4.2.6 Add approval flow for calendar modifications (uses `approval_queue` table)
-- [ ] 4.2.7 Test: "What's on my calendar today?"
-- [ ] 4.2.8 Test: "Schedule a meeting with John tomorrow at 2pm" (should request approval)
+- [x] 4.2.7 Test: "What's on my calendar today?" ✅ Shows 1 event
+- [ ] 4.2.8 Test: "Schedule a meeting with John tomorrow at 2pm" (requires approval system - Phase 6)
 
 ### 4.3 Email Skill
 > **Dependency**: 4.1 complete

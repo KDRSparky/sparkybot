@@ -15,18 +15,33 @@ export const GOOGLE_SCOPES = [
   'https://www.googleapis.com/auth/drive.file',
 ];
 
-// Credentials from environment
-const credentials = {
-  clientId: process.env.GOOGLE_CLIENT_ID || '',
-  clientSecret: process.env.GOOGLE_CLIENT_SECRET || '',
-  redirectUri: process.env.GOOGLE_REDIRECT_URI || 'http://localhost:3456/oauth/callback',
+/**
+ * Get credentials at runtime (not module load time)
+ */
+function getCredentials() {
+  return {
+    clientId: process.env.GOOGLE_CLIENT_ID || '',
+    clientSecret: process.env.GOOGLE_CLIENT_SECRET || '',
+    redirectUri: process.env.GOOGLE_REDIRECT_URI || 'http://localhost:3456/oauth/callback',
+  };
+}
+
+// Map email to environment variable name for refresh tokens
+const refreshTokenEnvMap: Record<string, string> = {
+  'johndempsey@johndempsey.us': 'GOOGLE_REFRESH_TOKEN_JOHNDEMPSEY',
+  'kdrsparky@gmail.com': 'GOOGLE_REFRESH_TOKEN_KDRSPARKY',
 };
 
-// Refresh tokens from environment (backup if not in Supabase)
-const refreshTokens: Record<string, string> = {
-  'johndempsey@johndempsey.us': process.env.GOOGLE_REFRESH_TOKEN_JOHNDEMPSEY || '',
-  'kdrsparky@gmail.com': process.env.GOOGLE_REFRESH_TOKEN_KDRSPARKY || '',
-};
+/**
+ * Get refresh token from environment (called at runtime, not module load)
+ */
+function getRefreshTokenFromEnv(email: string): string | null {
+  const envVar = refreshTokenEnvMap[email];
+  if (envVar) {
+    return process.env[envVar] || null;
+  }
+  return null;
+}
 
 // Primary email for Calendar/Gmail operations
 export const PRIMARY_EMAIL = process.env.GOOGLE_PRIMARY_EMAIL || 'johndempsey@johndempsey.us';
@@ -35,10 +50,11 @@ export const PRIMARY_EMAIL = process.env.GOOGLE_PRIMARY_EMAIL || 'johndempsey@jo
  * Create an OAuth2 client
  */
 export function createOAuth2Client(): OAuth2Client {
+  const creds = getCredentials();
   return new google.auth.OAuth2(
-    credentials.clientId,
-    credentials.clientSecret,
-    credentials.redirectUri
+    creds.clientId,
+    creds.clientSecret,
+    creds.redirectUri
   );
 }
 
@@ -92,10 +108,11 @@ export async function storeRefreshToken(
     const { error } = await supabase
       .from('preferences')
       .upsert({
-        key: `google_refresh_token_${email}`,
-        value: { refresh_token: refreshToken },
+        category: 'google_oauth',
+        key: `refresh_token_${email}`,
+        value: { refresh_token: refreshToken, email },
         updated_at: new Date().toISOString(),
-      }, { onConflict: 'key' });
+      }, { onConflict: 'category,key' });
 
     if (error) {
       console.error('Failed to store refresh token:', error);
@@ -120,7 +137,8 @@ export async function getRefreshToken(email: string): Promise<string | null> {
       const { data, error } = await supabase
         .from('preferences')
         .select('value')
-        .eq('key', `google_refresh_token_${email}`)
+        .eq('category', 'google_oauth')
+        .eq('key', `refresh_token_${email}`)
         .single();
 
       if (!error && data?.value?.refresh_token) {
@@ -131,8 +149,8 @@ export async function getRefreshToken(email: string): Promise<string | null> {
     }
   }
 
-  // Fallback to environment variable
-  return refreshTokens[email] || null;
+  // Fallback to environment variable (read at runtime)
+  return getRefreshTokenFromEnv(email);
 }
 
 /**
@@ -163,7 +181,8 @@ export async function getAuthenticatedClient(email: string): Promise<OAuth2Clien
  * Check if Google credentials are configured
  */
 export function isGoogleConfigured(): boolean {
-  return !!(credentials.clientId && credentials.clientSecret);
+  const creds = getCredentials();
+  return !!(creds.clientId && creds.clientSecret);
 }
 
 /**
