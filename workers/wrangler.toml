@@ -3,13 +3,20 @@ main = "scheduler.ts"
 compatibility_date = "2024-01-01"
 
 [triggers]
-# Market Reports (Central Time = UTC-6)
+# Market Reports - Crons for both CST (UTC-6) and CDT (UTC-5)
+# The worker code determines the correct report type based on current Central Time
 # Weekdays only (Mon-Fri)
 crons = [
-  "0 14 * * 1-5",   # 8:00 AM CT - Morning Report
-  "0 18 * * 1-5",   # 12:00 PM CT - Midday Report  
-  "15 21 * * 1-5",  # 3:15 PM CT - Afternoon Report
-  "0 11 * * 1-5"    # 5:00 AM CT - Overnight Analysis
+  # CST times (Nov-Mar): UTC-6
+  "0 14 * * 1-5",   # 8:00 AM CST
+  "0 18 * * 1-5",   # 12:00 PM CST  
+  "15 21 * * 1-5",  # 3:15 PM CST
+  "0 11 * * 1-5",   # 5:00 AM CST
+  # CDT times (Mar-Nov): UTC-5
+  "0 13 * * 1-5",   # 8:00 AM CDT
+  "0 17 * * 1-5",   # 12:00 PM CDT
+  "15 20 * * 1-5",  # 3:15 PM CDT
+  "0 10 * * 1-5"    # 5:00 AM CDT
 ]
 
 [vars]

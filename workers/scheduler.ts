@@ -1,13 +1,17 @@
 /**
  * Cloudflare Worker for Scheduled Market Reports
  * 
- * Cron Schedule:
+ * Cron Schedule (using America/Chicago timezone logic):
  * - 8:00 AM CT: Morning Report
  * - 12:00 PM CT: Midday Report
  * - 3:15 PM CT: Afternoon Report
  * - 5:00 AM CT: Overnight Analysis
  * 
  * This worker triggers the bot to send reports via Telegram
+ * 
+ * Note: Cron times are in UTC. We use two sets of crons to handle DST:
+ * - CST (Nov-Mar): UTC-6
+ * - CDT (Mar-Nov): UTC-5
  */
 
 export interface Env {
@@ -16,13 +20,64 @@ export interface Env {
   BOT_WEBHOOK_URL: string;
 }
 
-// Report types and their schedules (CT timezone = UTC-6)
-const SCHEDULES = {
-  '0 14 * * 1-5': 'morning',    // 8 AM CT = 14:00 UTC (weekdays)
-  '0 18 * * 1-5': 'midday',     // 12 PM CT = 18:00 UTC (weekdays)
-  '15 21 * * 1-5': 'afternoon', // 3:15 PM CT = 21:15 UTC (weekdays)
-  '0 11 * * 1-5': 'overnight',  // 5 AM CT = 11:00 UTC (weekdays)
+// Target times in Central Time
+const TARGET_TIMES = {
+  morning: { hour: 8, minute: 0 },
+  midday: { hour: 12, minute: 0 },
+  afternoon: { hour: 15, minute: 15 },
+  overnight: { hour: 5, minute: 0 },
 };
+
+/**
+ * Check if a given date is in US Daylight Saving Time
+ * DST starts: Second Sunday of March at 2am
+ * DST ends: First Sunday of November at 2am
+ */
+function isDST(date: Date): boolean {
+  const year = date.getUTCFullYear();
+  
+  // Find second Sunday of March
+  const marchFirst = new Date(Date.UTC(year, 2, 1)); // March 1
+  const marchFirstDay = marchFirst.getUTCDay();
+  const secondSundayMarch = new Date(Date.UTC(year, 2, 8 + (7 - marchFirstDay) % 7));
+  secondSundayMarch.setUTCHours(8); // 2am CT = 8am UTC (during CST)
+  
+  // Find first Sunday of November
+  const novFirst = new Date(Date.UTC(year, 10, 1)); // November 1
+  const novFirstDay = novFirst.getUTCDay();
+  const firstSundayNov = new Date(Date.UTC(year, 10, 1 + (7 - novFirstDay) % 7));
+  firstSundayNov.setUTCHours(7); // 2am CT = 7am UTC (during CDT)
+  
+  return date >= secondSundayMarch && date < firstSundayNov;
+}
+
+/**
+ * Get the UTC offset for Central Time (handles DST)
+ */
+function getCentralOffset(): number {
+  return isDST(new Date()) ? -5 : -6;
+}
+
+/**
+ * Determine report type based on current Central Time
+ */
+function getReportTypeForCurrentTime(): string | null {
+  const now = new Date();
+  const offset = getCentralOffset();
+  
+  // Convert to Central Time
+  const centralHour = (now.getUTCHours() + offset + 24) % 24;
+  const centralMinute = now.getUTCMinutes();
+  
+  // Check each target time (within 5 minute window)
+  for (const [type, target] of Object.entries(TARGET_TIMES)) {
+    if (centralHour === target.hour && Math.abs(centralMinute - target.minute) <= 5) {
+      return type;
+    }
+  }
+  
+  return null;
+}
 
 export default {
   // HTTP handler for manual triggers
@@ -36,26 +91,48 @@ export default {
     }
 
     if (url.pathname === '/health') {
-      return new Response('OK', { status: 200 });
+      const offset = getCentralOffset();
+      const now = new Date();
+      const centralTime = new Date(now.getTime() + offset * 60 * 60 * 1000);
+      return new Response(JSON.stringify({
+        status: 'OK',
+        utcTime: now.toISOString(),
+        centralTime: centralTime.toISOString(),
+        isDST: isDST(now),
+        offset: offset,
+      }), { 
+        status: 200,
+        headers: { 'Content-Type': 'application/json' }
+      });
     }
 
-    return new Response('SparkyBot Scheduler', { status: 200 });
+    if (url.pathname === '/debug') {
+      const reportType = getReportTypeForCurrentTime();
+      return new Response(JSON.stringify({
+        currentReportType: reportType,
+        isDST: isDST(new Date()),
+        offset: getCentralOffset(),
+        targetTimes: TARGET_TIMES,
+      }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' }
+      });
+    }
+
+    return new Response('SparkyBot Scheduler - DST Aware', { status: 200 });
   },
 
   // Scheduled handler for cron triggers
   async scheduled(event: ScheduledEvent, env: Env, ctx: ExecutionContext): Promise<void> {
-    // Determine which report to send based on cron
-    const cronStr = event.cron;
-    let reportType = 'morning';
-
-    for (const [cron, type] of Object.entries(SCHEDULES)) {
-      if (cron === cronStr) {
-        reportType = type;
-        break;
-      }
+    // Determine report type based on current Central Time
+    const reportType = getReportTypeForCurrentTime();
+    
+    if (reportType) {
+      ctx.waitUntil(triggerReport(env, reportType));
+    } else {
+      // Log that we couldn't match a report type (shouldn't happen if crons are correct)
+      console.log(`Cron fired but no matching report type. Cron: ${event.cron}`);
     }
-
-    ctx.waitUntil(triggerReport(env, reportType));
   },
 };
 

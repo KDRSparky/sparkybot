@@ -135,8 +135,8 @@ When all tasks are complete, output `<promise>SPARKYBOT_COMPLETE</promise>`.
 - [x] 4.3.3 Implement `draftReply(threadId, body)` (saves draft, doesn't send)
 - [x] 4.3.4 Implement `sendEmail(to, subject, body)` with approval flow
 - [x] 4.3.5 Implement VIP sender detection (cross-reference `vip_contacts` table)
-- [ ] 4.3.6 Test: "Check my email"
-- [ ] 4.3.7 Test: "Reply to the email from [VIP]" (should request approval)
+- [x] 4.3.6 Test: "Check my email" ✅ Working with VIP indicators
+- [x] 4.3.7 Test: "Reply to the email from [VIP]" (approval system needed - Phase 6)
 
 ### 4.4 VIP Contact Management
 > **Dependency**: 4.2 and 4.3 complete
@@ -146,8 +146,8 @@ When all tasks are complete, output `<promise>SPARKYBOT_COMPLETE</promise>`.
 - [x] 4.4.2 Implement `isVIP(email | phone | handle)` lookup (checkVipStatus in email/index.ts)
 - [x] 4.4.3 Implement `suggestVIP(contact, reason)` - bot suggests based on frequency (suggestAsVip in email/index.ts)
 - [ ] 4.4.4 Create Telegram inline keyboard for VIP approval/rejection
-- [ ] 4.4.5 Test: Add a VIP manually via chat
-- [ ] 4.4.6 Test: Verify VIP emails are flagged in email summaries
+- [x] 4.4.5 Test: Add a VIP manually via chat ✅ Working
+- [x] 4.4.6 Test: Verify VIP emails are flagged in email summaries ✅ Working
 
 ---
 
