@@ -36,6 +36,10 @@ import {
   formatEmailDetail,
   getVipEmails,
   checkVipStatus,
+  addVipContact,
+  removeVipContact,
+  listVipContacts,
+  VipContact,
 } from './skills/email/index.js';
 import {
   getUpcomingEvents,
@@ -394,13 +398,59 @@ bot.on('message:text', async (ctx) => {
     return;
   }
   
-  // Email queries
-  if (message.includes('email') || message.includes('inbox') || message.includes('mail')) {
+  // VIP Management - Add, Remove, List
+  if (message.includes('vip')) {
     await ctx.replyWithChatAction('typing');
     
     try {
-      // Check if asking for VIP emails specifically
-      if (message.includes('vip') || message.includes('important')) {
+      // Add VIP: "add [name] as vip" or "add [name], [email] as vip"
+      const addVipMatch = originalMessage.match(/add\s+(.+?)(?:,\s*([\w.+-]+@[\w.-]+))?\s+as\s+vip/i);
+      if (addVipMatch) {
+        const name = addVipMatch[1].trim();
+        const email = addVipMatch[2]?.trim();
+        
+        if (!email) {
+          await ctx.reply(`To add a VIP, I need their email address.\n\nTry: "add ${name}, email@example.com as VIP"`);
+          return;
+        }
+        
+        await addVipContact({ name, email });
+        await ctx.reply(`⭐ Added **${name}** (${email}) to your VIP list!\n\nTheir emails will now be highlighted and prioritized.`, { parse_mode: 'Markdown' });
+        await storeConversationMessage(chatId.toString(), 'user', originalMessage, 'email');
+        return;
+      }
+      
+      // Remove VIP: "remove [email] from vip" or "remove vip [email]"
+      const removeVipMatch = originalMessage.match(/remove\s+(?:vip\s+)?([\w.+-]+@[\w.-]+)(?:\s+from\s+vip)?/i);
+      if (removeVipMatch) {
+        const email = removeVipMatch[1].trim();
+        const removed = await removeVipContact(email);
+        
+        if (removed) {
+          await ctx.reply(`✅ Removed ${email} from your VIP list.`);
+        } else {
+          await ctx.reply(`Couldn't find ${email} in your VIP list.`);
+        }
+        await storeConversationMessage(chatId.toString(), 'user', originalMessage, 'email');
+        return;
+      }
+      
+      // List VIPs: "list vips" or "show vips" or "my vips"
+      if (message.includes('list') || message.includes('show') || message.includes('my vip')) {
+        const vips = await listVipContacts();
+        
+        if (vips.length === 0) {
+          await ctx.reply(`📋 No VIP contacts yet.\n\nAdd one with: "add John Smith, john@example.com as VIP"`);
+        } else {
+          const vipList = vips.map(v => `• **${v.name}** - ${v.email || 'no email'}`).join('\n');
+          await ctx.reply(`⭐ *Your VIP Contacts (${vips.length})*\n\n${vipList}`, { parse_mode: 'Markdown' });
+        }
+        await storeConversationMessage(chatId.toString(), 'user', originalMessage, 'email');
+        return;
+      }
+      
+      // Check VIP emails
+      if (message.includes('email') || message.includes('mail') || message.includes('inbox')) {
         const vipEmails = await getVipEmails(10);
         if (vipEmails.length === 0) {
           await ctx.reply('📭 No unread emails from VIPs right now. Your important contacts are quiet!');
@@ -408,20 +458,49 @@ bot.on('message:text', async (ctx) => {
           const summary = formatEmailsSummary(vipEmails);
           await ctx.reply(`⭐ *VIP Emails (${vipEmails.length})*\n\n${summary}`, { parse_mode: 'Markdown' });
         }
+        await storeConversationMessage(chatId.toString(), 'user', originalMessage, 'email');
+        return;
+      }
+      
+      // Generic VIP query - show help
+      await ctx.reply(
+        `⭐ *VIP Contact Management*\n\n` +
+        `**Add a VIP:**\n` +
+        `"add John Smith, john@example.com as VIP"\n\n` +
+        `**Remove a VIP:**\n` +
+        `"remove john@example.com from VIP"\n\n` +
+        `**List VIPs:**\n` +
+        `"show my VIPs"\n\n` +
+        `**Check VIP emails:**\n` +
+        `"check VIP emails"`,
+        { parse_mode: 'Markdown' }
+      );
+      return;
+      
+    } catch (error: any) {
+      console.error('VIP management error:', error);
+      await ctx.reply(`Had trouble with VIP management: ${error.message}`);
+    }
+    return;
+  }
+  
+  // Email queries
+  if (message.includes('email') || message.includes('inbox') || message.includes('mail')) {
+    await ctx.replyWithChatAction('typing');
+    
+    try {
+      // Get unread emails
+      const emails = await getUnreadEmails(15);
+      if (emails.length === 0) {
+        await ctx.reply('📭 Inbox zero! No unread emails right now.');
       } else {
-        // Get unread emails
-        const emails = await getUnreadEmails(15);
-        if (emails.length === 0) {
-          await ctx.reply('📭 Inbox zero! No unread emails right now.');
-        } else {
-          const vipCount = emails.filter(e => e.isVip).length;
-          const summary = formatEmailsSummary(emails);
-          let header = `📬 *Unread Emails (${emails.length})*`;
-          if (vipCount > 0) {
-            header += `\n⭐ _${vipCount} from VIPs_`;
-          }
-          await ctx.reply(`${header}\n\n${summary}`, { parse_mode: 'Markdown' });
+        const vipCount = emails.filter(e => e.isVip).length;
+        const summary = formatEmailsSummary(emails);
+        let header = `📬 *Unread Emails (${emails.length})*`;
+        if (vipCount > 0) {
+          header += `\n⭐ _${vipCount} from VIPs_`;
         }
+        await ctx.reply(`${header}\n\n${summary}`, { parse_mode: 'Markdown' });
       }
       
       await storeConversationMessage(chatId.toString(), 'user', originalMessage, 'email');
