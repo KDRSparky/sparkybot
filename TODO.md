@@ -184,14 +184,16 @@ When all tasks are complete, output `<promise>SPARKYBOT_COMPLETE</promise>`.
 > **Dependency**: Market skill working
 > **Success Criteria**: Daily portfolio value tracked for historical analysis
 
-- [ ] 5.3.1 Implement `takePortfolioSnapshot()` function
-- [ ] 5.3.2 Store in `portfolio_snapshots` table with:
+- [x] 5.3.1 Implement `takePortfolioSnapshot()` function
+- [x] 5.3.2 Store in `portfolio_snapshots` table with:
   - Total value
   - Daily change ($ and %)
   - Full holdings JSON
-- [ ] 5.3.3 Add to overnight analysis cron job
-- [ ] 5.3.4 Implement `getPortfolioHistory(days)` for trend analysis
-- [ ] 5.3.5 Test: "How has my portfolio performed this month?"
+- [x] 5.3.3 Add to overnight analysis cron job
+- [x] 5.3.4 Implement `getPortfolioHistory(days)` for trend analysis
+- [x] 5.3.5 Implement `formatPortfolioPerformance(days)` for Telegram
+- [x] 5.3.6 Add /performance command and natural language support
+- [ ] 5.3.7 Test: "How has my portfolio performed this month?" (needs snapshot data)
 
 ---
 
