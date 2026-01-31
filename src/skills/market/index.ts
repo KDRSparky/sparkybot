@@ -76,7 +76,7 @@ export interface EarningsEvent {
   symbol: string;
   companyName: string;
   reportDate: string;
-  reportTime: 'BMO' | 'AMC' | 'TNS'; // Before Market Open, After Market Close, Time Not Specified
+  reportTime: 'BMO' | 'AMC' | 'TNS';
   estimate?: number;
   inPortfolio: boolean;
   shares?: number;
@@ -85,7 +85,7 @@ export interface EarningsEvent {
 export interface EconomicEvent {
   name: string;
   date: string;
-  time: string; // CT timezone
+  time: string;
   impact: 'high' | 'medium' | 'low';
   previous?: string;
   forecast?: string;
@@ -107,19 +107,16 @@ export type ReportType = 'morning' | 'midday' | 'afternoon' | 'evening' | 'overn
 const PORTFOLIO_PATH = join(process.cwd(), 'data', 'portfolio.csv');
 const USER_TIMEZONE = 'America/Chicago';
 
-// Top 10 cryptos by market cap (IDs for CoinGecko)
 const TOP_CRYPTO_IDS = [
   'bitcoin', 'ethereum', 'ripple', 'binancecoin', 'solana',
   'dogecoin', 'cardano', 'avalanche-2', 'polkadot', 'chainlink'
 ];
 
-// Your crypto holdings that might not be in top 10
-const USER_CRYPTO_HOLDINGS = ['world-liberty-financial']; // WLFI
+const USER_CRYPTO_HOLDINGS = ['world-liberty-financial'];
 
-// Thresholds
-const MOVER_THRESHOLD_PCT = 2.0; // Show positions that moved > 2%
+const MOVER_THRESHOLD_PCT = 2.0;
 const EARNINGS_LOOKAHEAD_DAYS = 7;
-const LARGE_POSITION_MOVE_PCT = 5.0; // Alert for single position > 5% move
+const LARGE_POSITION_MOVE_PCT = 5.0;
 
 // ============================================================================
 // FORMATTING HELPERS
@@ -140,6 +137,13 @@ const formatCompactCurrency = (n: number): string => {
   return formatCurrency(n);
 };
 
+const formatChange = (n: number, pct: number): string => {
+  const safeN = isNaN(n) || !isFinite(n) ? 0 : n;
+  const safePct = isNaN(pct) || !isFinite(pct) ? 0 : pct;
+  if (safeN === 0 && safePct === 0) return 'No change';
+  return `${safeN >= 0 ? '+' : ''}${formatCurrency(safeN)} (${formatPct(safePct)})`;
+};
+
 // ============================================================================
 // TIME-OF-DAY DETECTION
 // ============================================================================
@@ -158,7 +162,7 @@ interface ReportContext {
   isWeekend: boolean;
 }
 
-function getReportContext(overrideType?: ReportType): ReportContext {
+export function getReportContext(overrideType?: ReportType): ReportContext {
   const now = new Date();
   const centralTime = new Date(now.toLocaleString('en-US', { timeZone: USER_TIMEZONE }));
   const hour = centralTime.getHours();
@@ -188,7 +192,6 @@ function getReportContext(overrideType?: ReportType): ReportContext {
   const isMarketOpen = timeInMinutes >= 8 * 60 + 30 && timeInMinutes < 15 * 60;
   const isAfterHours = timeInMinutes >= 15 * 60 && timeInMinutes < 19 * 60;
 
-  // Determine report type based on time if not overridden
   let type: ReportType;
   if (overrideType) {
     type = overrideType;
@@ -221,6 +224,37 @@ function getReportContext(overrideType?: ReportType): ReportContext {
     isAfterHours,
     isWeekend,
   };
+}
+
+/**
+ * Get current market status based on time
+ */
+export function getMarketStatus(): string {
+  const now = new Date();
+  const centralTime = new Date(now.toLocaleString('en-US', { timeZone: USER_TIMEZONE }));
+  const hour = centralTime.getHours();
+  const minute = centralTime.getMinutes();
+  const day = centralTime.getDay();
+
+  if (day === 0 || day === 6) {
+    return '📅 Markets closed (Weekend)';
+  }
+
+  const timeInMinutes = hour * 60 + minute;
+
+  if (timeInMinutes >= 4 * 60 && timeInMinutes < 8 * 60 + 30) {
+    return '🌅 Pre-market trading';
+  }
+
+  if (timeInMinutes >= 8 * 60 + 30 && timeInMinutes < 15 * 60) {
+    return '🟢 Markets open';
+  }
+
+  if (timeInMinutes >= 15 * 60 && timeInMinutes < 19 * 60) {
+    return '🌙 After-hours trading';
+  }
+
+  return '🔴 Markets closed';
 }
 
 // ============================================================================
@@ -274,6 +308,7 @@ export async function getStockQuote(symbol: string): Promise<MarketData | null> 
     if (!result) return null;
 
     const meta = result.meta;
+    const quote = result.indicators?.quote?.[0];
     const price = meta.regularMarketPrice || meta.previousClose || 0;
     const previousClose = meta.previousClose || price;
     const change = price && previousClose ? price - previousClose : 0;
@@ -285,6 +320,9 @@ export async function getStockQuote(symbol: string): Promise<MarketData | null> 
       change: isNaN(change) ? 0 : change,
       changePct: isNaN(changePct) ? 0 : changePct,
       volume: meta.regularMarketVolume,
+      high: quote?.high?.[0],
+      low: quote?.low?.[0],
+      open: quote?.open?.[0],
       previousClose,
     };
   } catch (error) {
@@ -307,6 +345,29 @@ export async function getMarketIndices(): Promise<{
   return { sp500, nasdaq, dow };
 }
 
+export async function getCryptoPrice(coinId: string): Promise<MarketData | null> {
+  try {
+    const url = `https://api.coingecko.com/api/v3/simple/price?ids=${coinId}&vs_currencies=usd&include_24hr_change=true`;
+
+    const response = await fetch(url);
+    if (!response.ok) return null;
+
+    const data: any = await response.json();
+    const coin = data[coinId];
+    if (!coin) return null;
+
+    return {
+      symbol: coinId.toUpperCase(),
+      price: coin.usd,
+      change: (coin.usd * coin.usd_24h_change) / 100,
+      changePct: coin.usd_24h_change,
+    };
+  } catch (error) {
+    console.error(`Error fetching crypto price for ${coinId}:`, error);
+    return null;
+  }
+}
+
 export async function getCryptoPrices(): Promise<CryptoData[]> {
   try {
     const allIds = [...TOP_CRYPTO_IDS, ...USER_CRYPTO_HOLDINGS].join(',');
@@ -318,7 +379,6 @@ export async function getCryptoPrices(): Promise<CryptoData[]> {
     const data: any = await response.json();
     const results: CryptoData[] = [];
 
-    // Map coinId to readable symbol
     const symbolMap: Record<string, string> = {
       'bitcoin': 'BTC',
       'ethereum': 'ETH',
@@ -344,9 +404,7 @@ export async function getCryptoPrices(): Promise<CryptoData[]> {
       });
     }
 
-    // Sort by market cap
     results.sort((a, b) => (b.marketCap || 0) - (a.marketCap || 0));
-
     return results;
   } catch (error) {
     console.error('Error fetching crypto prices:', error);
@@ -409,7 +467,6 @@ export function calculatePortfolioSummary(positions: Position[]): PortfolioSumma
   const topGainers = sorted.filter(p => (p.dayChangePct || 0) > 0).slice(0, 5);
   const topLosers = sorted.filter(p => (p.dayChangePct || 0) < 0).slice(-5).reverse();
 
-  // Sector breakdown
   const sectorBreakdown: Record<string, number> = {};
   for (const pos of positions) {
     let sector = 'Other';
@@ -453,27 +510,11 @@ export function calculatePortfolioSummary(positions: Position[]): PortfolioSumma
 
 async function getUpcomingEarnings(portfolioSymbols: string[]): Promise<EarningsEvent[]> {
   // TODO: Integrate with Financial Modeling Prep API or Yahoo Finance earnings calendar
-  // For now, return empty array - this is a stub for future implementation
-
-  // Example of what this would return:
-  // return [
-  //   { symbol: 'SOFI', companyName: 'SoFi Technologies', reportDate: '2026-01-29',
-  //     reportTime: 'BMO', inPortfolio: true, shares: 700 },
-  // ];
-
   return [];
 }
 
 async function getEconomicCalendar(): Promise<EconomicEvent[]> {
   // TODO: Integrate with Trading Economics API or similar
-  // For now, return empty array - this is a stub for future implementation
-
-  // Example of what this would return:
-  // return [
-  //   { name: 'GDP Report', date: '2026-01-29', time: '7:30am CT', impact: 'high' },
-  //   { name: 'Fed Rate Decision', date: '2026-01-30', time: '1:00pm CT', impact: 'high' },
-  // ];
-
   return [];
 }
 
@@ -488,7 +529,6 @@ function generateMarketHeadline(indices: { sp500: MarketData | null; nasdaq: Mar
 
   const avgChange = (sp + nas + dow) / 3;
 
-  // Determine headline based on market action
   if (avgChange < -1.5) {
     return 'Broad Selloff';
   } else if (avgChange < -0.5) {
@@ -547,7 +587,6 @@ async function generateReminders(
 ): Promise<Reminder[]> {
   const reminders: Reminder[] = [];
 
-  // Earnings reminders (within 7 days, portfolio holdings first)
   for (const e of earnings.filter(e => e.inPortfolio)) {
     const timeLabel = e.reportTime === 'BMO' ? 'before market' : e.reportTime === 'AMC' ? 'after close' : '';
     reminders.push({
@@ -558,7 +597,6 @@ async function generateReminders(
     });
   }
 
-  // Economic events (high impact only)
   for (const e of economic.filter(e => e.impact === 'high')) {
     reminders.push({
       type: 'economic',
@@ -568,7 +606,6 @@ async function generateReminders(
     });
   }
 
-  // Large position moves (> 5%)
   for (const pos of summary.positions) {
     if (Math.abs(pos.dayChangePct || 0) >= LARGE_POSITION_MOVE_PCT) {
       const direction = (pos.dayChangePct || 0) > 0 ? 'up' : 'down';
@@ -580,19 +617,16 @@ async function generateReminders(
     }
   }
 
-  // TODO: Add dividend reminders, options expiration, custom reminders from Supabase
-
   return reminders;
 }
 
 // ============================================================================
-// MAIN REPORT GENERATOR
+// MAIN REPORT GENERATOR (ENHANCED v2.0)
 // ============================================================================
 
 export async function generateMarketReport(type?: ReportType): Promise<string> {
   const context = getReportContext(type);
 
-  // Load data
   const positions = loadPortfolio();
   const updatedPositions = await updatePortfolioPrices(positions);
   const summary = calculatePortfolioSummary(updatedPositions);
@@ -602,12 +636,10 @@ export async function generateMarketReport(type?: ReportType): Promise<string> {
   const economic = await getEconomicCalendar();
   const reminders = await generateReminders(summary, earnings, economic);
 
-  // Generate narrative elements
   const marketHeadline = generateMarketHeadline(indices);
   const portfolioStatus = generatePortfolioHeadline(summary);
   const sentiment = generateSentiment(indices, summary);
 
-  // Build the report
   let report = '';
 
   // ── HEADER ──
@@ -617,13 +649,11 @@ export async function generateMarketReport(type?: ReportType): Promise<string> {
   // ── MARKET SNAPSHOT ──
   report += `📊 MARKET ${context.isMarketOpen ? 'UPDATE' : 'CLOSE'}: ${marketHeadline}\n`;
 
-  // Brief context line (executive level - 1 line)
   if (Math.abs((indices.nasdaq?.changePct || 0)) > 1.5) {
     report += `Tech ${(indices.nasdaq?.changePct || 0) > 0 ? 'leading' : 'lagging'} the broader market.\n`;
   }
   report += `\n`;
 
-  // Index bullets
   if (indices.dow) {
     report += `• Dow: ${formatCurrency(indices.dow.price)} (${formatPct(indices.dow.changePct)})\n`;
   }
@@ -640,7 +670,6 @@ export async function generateMarketReport(type?: ReportType): Promise<string> {
   report += `💼 YOUR PORTFOLIO: ${portfolioStatus.headline} ${portfolioStatus.emoji}\n`;
   report += `Value: ${formatCurrency(summary.totalValue)} | Day: ${formatPct(summary.dayChangePct)}\n\n`;
 
-  // Notable movers (> 2% or top holdings)
   const notableMovers = summary.positions
     .filter(p => Math.abs(p.dayChangePct || 0) >= MOVER_THRESHOLD_PCT)
     .sort((a, b) => Math.abs(b.dayChangePct || 0) - Math.abs(a.dayChangePct || 0))
@@ -659,11 +688,9 @@ export async function generateMarketReport(type?: ReportType): Promise<string> {
   if (cryptos.length > 0) {
     report += `₿ CRYPTO\n`;
 
-    // Show top cryptos, marking which ones you hold
-    const userCryptoSymbols = ['WLFI']; // Add your crypto holdings here
+    const userCryptoSymbols = ['WLFI'];
     const displayCryptos = cryptos.slice(0, 10);
 
-    // Add any user holdings not in top 10
     for (const holding of userCryptoSymbols) {
       const found = cryptos.find(c => c.symbol === holding);
       if (found && !displayCryptos.includes(found)) {
@@ -679,7 +706,7 @@ export async function generateMarketReport(type?: ReportType): Promise<string> {
     report += `\n`;
   }
 
-  // ── TOMORROW'S OUTLOOK / WHAT'S AHEAD ──
+  // ── TOMORROW'S OUTLOOK ──
   const hasOutlookContent = earnings.length > 0 || economic.length > 0;
   if (hasOutlookContent || context.type === 'evening' || context.type === 'afternoon') {
     const tomorrow = new Date();
@@ -693,7 +720,6 @@ export async function generateMarketReport(type?: ReportType): Promise<string> {
 
     report += `📅 TOMORROW'S OUTLOOK (${tomorrowStr})\n\n`;
 
-    // Earnings
     const portfolioEarnings = earnings.filter(e => e.inPortfolio);
     if (portfolioEarnings.length > 0) {
       for (const e of portfolioEarnings) {
@@ -703,13 +729,11 @@ export async function generateMarketReport(type?: ReportType): Promise<string> {
       }
     }
 
-    // Economic data
     const highImpactEvents = economic.filter(e => e.impact === 'high');
     for (const e of highImpactEvents) {
       report += `• Data: ${e.name} at ${e.time}\n`;
     }
 
-    // Sentiment
     report += `\n• Sentiment: ${sentiment}\n`;
     report += `\n`;
   }
@@ -731,7 +755,346 @@ export async function generateMarketReport(type?: ReportType): Promise<string> {
 }
 
 // ============================================================================
-// EXPORTS (maintain compatibility with existing code)
+// ORIGINAL FUNCTIONS (Required by index.ts)
 // ============================================================================
 
-export { getReportContext, loadPortfolio as loadPortfolioPositions };
+/**
+ * Get quick quote for a symbol
+ */
+export async function getQuickQuote(symbol: string): Promise<string> {
+  const quote = await getStockQuote(symbol.toUpperCase());
+
+  if (!quote) {
+    return `Couldn't find data for ${symbol}. Make sure it's a valid ticker symbol.`;
+  }
+
+  const emoji = quote.changePct >= 0 ? '📈' : '📉';
+
+  return `${emoji} **${quote.symbol}**: ${formatCurrency(quote.price)} (${formatPct(quote.changePct)} today)`;
+}
+
+/**
+ * Get portfolio position for a symbol
+ */
+export function getPortfolioPosition(symbol: string): Position | null {
+  const positions = loadPortfolio();
+  return positions.find(p => p.symbol.toUpperCase() === symbol.toUpperCase()) || null;
+}
+
+/**
+ * Get portfolio overview
+ */
+export async function getPortfolioOverview(): Promise<string> {
+  const positions = loadPortfolio();
+
+  let totalValue = 0;
+  let totalCost = 0;
+
+  for (const pos of positions) {
+    totalValue += pos.currentValue || 0;
+    totalCost += pos.quantity * pos.costBasis;
+  }
+
+  const totalGain = totalValue - totalCost;
+  const totalGainPct = totalCost > 0 ? (totalGain / totalCost) * 100 : 0;
+
+  let response = `💼 **Portfolio Overview**\n\n`;
+  response += `Total Value: ${formatCurrency(totalValue)}\n`;
+  response += `Total Cost: ${formatCurrency(totalCost)}\n`;
+  response += `Total Gain: ${formatCurrency(totalGain)} (${formatPct(totalGainPct)})\n`;
+  response += `Positions: ${positions.length} holdings\n\n`;
+
+  const sortedByValue = [...positions].sort((a, b) => (b.currentValue || 0) - (a.currentValue || 0));
+  response += `**Top Holdings:**\n`;
+  for (const pos of sortedByValue.slice(0, 5)) {
+    const pct = ((pos.currentValue || 0) / totalValue) * 100;
+    response += `${pos.symbol}: ${formatCurrency(pos.currentValue || 0)} (${pct.toFixed(1)}%)\n`;
+  }
+
+  return response;
+}
+
+/**
+ * Generate comprehensive overnight analysis
+ */
+export async function generateOvernightAnalysis(): Promise<{
+  content: string;
+  summary: string;
+}> {
+  const reportDate = new Date().toLocaleDateString('en-US', {
+    timeZone: USER_TIMEZONE,
+    weekday: 'long',
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric',
+  });
+
+  const positions = loadPortfolio();
+  const updatedPositions = await updatePortfolioPrices(positions);
+  const summary = calculatePortfolioSummary(updatedPositions);
+
+  const indices = await getMarketIndices();
+  const [bitcoin, ethereum] = await Promise.all([
+    getCryptoPrice('bitcoin'),
+    getCryptoPrice('ethereum'),
+  ]);
+
+  let content = `# SparkyBot Overnight Market Analysis\n`;
+  content += `## ${reportDate}\n\n`;
+
+  content += `## Executive Summary\n\n`;
+  content += `Your portfolio closed at **${formatCurrency(summary.totalValue)}** `;
+  content += `with a day change of ${formatChange(summary.dayChange, summary.dayChangePct)}.\n\n`;
+  content += `Total unrealized gain: ${formatChange(summary.totalGain, summary.totalGainPct)}\n\n`;
+
+  content += `## Market Overview\n\n`;
+  content += `| Index | Close | Change |\n`;
+  content += `|-------|-------|--------|\n`;
+  if (indices.sp500) {
+    content += `| S&P 500 | ${formatCurrency(indices.sp500.price)} | ${formatChange(indices.sp500.change, indices.sp500.changePct)} |\n`;
+  }
+  if (indices.nasdaq) {
+    content += `| NASDAQ | ${formatCurrency(indices.nasdaq.price)} | ${formatChange(indices.nasdaq.change, indices.nasdaq.changePct)} |\n`;
+  }
+  if (indices.dow) {
+    content += `| DOW | ${formatCurrency(indices.dow.price)} | ${formatChange(indices.dow.change, indices.dow.changePct)} |\n`;
+  }
+  content += `\n`;
+
+  content += `## Cryptocurrency\n\n`;
+  if (bitcoin) {
+    content += `**Bitcoin**: ${formatCurrency(bitcoin.price)} (${formatPct(bitcoin.changePct)} 24h)\n\n`;
+  }
+  if (ethereum) {
+    content += `**Ethereum**: ${formatCurrency(ethereum.price)} (${formatPct(ethereum.changePct)} 24h)\n\n`;
+  }
+
+  content += `## Portfolio Breakdown\n\n`;
+  content += `| Symbol | Shares | Price | Value | Day Change | Total Gain |\n`;
+  content += `|--------|--------|-------|-------|------------|------------|\n`;
+
+  const sortedByValue = [...updatedPositions].sort((a, b) => (b.currentValue || 0) - (a.currentValue || 0));
+  for (const pos of sortedByValue.slice(0, 20)) {
+    const currentPrice = pos.currentPrice || pos.lastPrice;
+    const dayChg = pos.dayChangePct !== undefined ? formatPct(pos.dayChangePct) : 'N/A';
+    const totalGainPct = pos.totalGainPct !== undefined ? formatPct(pos.totalGainPct) : 'N/A';
+    content += `| ${pos.symbol} | ${pos.quantity.toFixed(2)} | ${formatCurrency(currentPrice)} | ${formatCurrency(pos.currentValue || 0)} | ${dayChg} | ${totalGainPct} |\n`;
+  }
+  content += `\n`;
+
+  content += `## Top Movers\n\n`;
+
+  if (summary.topGainers.length > 0) {
+    content += `### Top Gainers\n\n`;
+    for (const pos of summary.topGainers.slice(0, 5)) {
+      if (pos.dayChangePct && pos.dayChangePct > 0) {
+        content += `- **${pos.symbol}**: ${formatPct(pos.dayChangePct)} (+${formatCurrency(pos.dayChange || 0)})\n`;
+      }
+    }
+    content += `\n`;
+  }
+
+  if (summary.topLosers.length > 0) {
+    content += `### Top Losers\n\n`;
+    for (const pos of summary.topLosers.slice(0, 5)) {
+      if (pos.dayChangePct && pos.dayChangePct < 0) {
+        content += `- **${pos.symbol}**: ${formatPct(pos.dayChangePct)} (${formatCurrency(pos.dayChange || 0)})\n`;
+      }
+    }
+    content += `\n`;
+  }
+
+  content += `## Sector Allocation\n\n`;
+  content += `| Sector | Value | % of Portfolio |\n`;
+  content += `|--------|-------|----------------|\n`;
+  const sortedSectors = Object.entries(summary.sectorBreakdown).sort((a, b) => b[1] - a[1]);
+  for (const [sector, value] of sortedSectors) {
+    const pct = (value / summary.totalValue) * 100;
+    content += `| ${sector} | ${formatCurrency(value)} | ${pct.toFixed(1)}% |\n`;
+  }
+  content += `\n`;
+
+  content += `## Concentration Analysis\n\n`;
+  const top5Value = sortedByValue.slice(0, 5).reduce((sum, p) => sum + (p.currentValue || 0), 0);
+  const top10Value = sortedByValue.slice(0, 10).reduce((sum, p) => sum + (p.currentValue || 0), 0);
+  content += `- **Top 5 holdings**: ${formatCurrency(top5Value)} (${((top5Value / summary.totalValue) * 100).toFixed(1)}% of portfolio)\n`;
+  content += `- **Top 10 holdings**: ${formatCurrency(top10Value)} (${((top10Value / summary.totalValue) * 100).toFixed(1)}% of portfolio)\n`;
+  content += `- **Total positions**: ${positions.length}\n\n`;
+
+  content += `## Notes\n\n`;
+  content += `_This report was automatically generated by SparkyBot at 5:00 AM CT._\n\n`;
+  content += `---\n\n`;
+  content += `*Report generated: ${new Date().toLocaleString('en-US', { timeZone: USER_TIMEZONE })}*\n`;
+
+  const telegramSummary = `📊 **Overnight Analysis Ready**\n\n` +
+    `Portfolio: ${formatCurrency(summary.totalValue)}\n` +
+    `Day Change: ${formatChange(summary.dayChange, summary.dayChangePct)}\n` +
+    `Total Gain: ${formatChange(summary.totalGain, summary.totalGainPct)}\n\n` +
+    `_Full report saved to Google Drive_`;
+
+  return {
+    content,
+    summary: telegramSummary,
+  };
+}
+
+/**
+ * Take a portfolio snapshot and store in Supabase
+ */
+export async function takePortfolioSnapshot(): Promise<{
+  success: boolean;
+  snapshotId?: string;
+  totalValue?: number;
+  dailyChange?: number;
+  dailyChangePct?: number;
+  error?: string;
+}> {
+  if (!isSupabaseConfigured || !supabase) {
+    return { success: false, error: 'Supabase not configured' };
+  }
+
+  try {
+    const positions = loadPortfolio();
+    const updatedPositions = await updatePortfolioPrices(positions);
+    const summary = calculatePortfolioSummary(updatedPositions);
+
+    const today = new Date().toLocaleDateString('en-CA', { timeZone: USER_TIMEZONE });
+
+    const { data: existing } = await supabase
+      .from('portfolio_snapshots')
+      .select('id')
+      .eq('snapshot_date', today)
+      .single();
+
+    if (existing) {
+      const { data, error } = await supabase
+        .from('portfolio_snapshots')
+        .update({
+          holdings: updatedPositions,
+          total_value: summary.totalValue,
+          daily_change: summary.dayChange,
+          daily_change_pct: summary.dayChangePct,
+        })
+        .eq('id', existing.id)
+        .select()
+        .single();
+
+      if (error) throw error;
+
+      console.log(`📸 Updated portfolio snapshot for ${today}: ${summary.totalValue.toLocaleString()}`);
+      return {
+        success: true,
+        snapshotId: data.id,
+        totalValue: summary.totalValue,
+        dailyChange: summary.dayChange,
+        dailyChangePct: summary.dayChangePct,
+      };
+    } else {
+      const { data, error } = await supabase
+        .from('portfolio_snapshots')
+        .insert({
+          snapshot_date: today,
+          holdings: updatedPositions,
+          total_value: summary.totalValue,
+          daily_change: summary.dayChange,
+          daily_change_pct: summary.dayChangePct,
+        })
+        .select()
+        .single();
+
+      if (error) throw error;
+
+      console.log(`📸 Created portfolio snapshot for ${today}: ${summary.totalValue.toLocaleString()}`);
+      return {
+        success: true,
+        snapshotId: data.id,
+        totalValue: summary.totalValue,
+        dailyChange: summary.dayChange,
+        dailyChangePct: summary.dayChangePct,
+      };
+    }
+  } catch (error: any) {
+    console.error('Error taking portfolio snapshot:', error);
+    return { success: false, error: error.message };
+  }
+}
+
+/**
+ * Get portfolio history for trend analysis
+ */
+export async function getPortfolioHistory(days: number = 30): Promise<Array<{
+  date: string;
+  totalValue: number;
+  dailyChange: number;
+  dailyChangePct: number;
+}>> {
+  if (!isSupabaseConfigured || !supabase) {
+    return [];
+  }
+
+  try {
+    const startDate = new Date();
+    startDate.setDate(startDate.getDate() - days);
+    const startDateStr = startDate.toISOString().split('T')[0];
+
+    const { data, error } = await supabase
+      .from('portfolio_snapshots')
+      .select('snapshot_date, total_value, daily_change, daily_change_pct')
+      .gte('snapshot_date', startDateStr)
+      .order('snapshot_date', { ascending: true });
+
+    if (error) throw error;
+
+    return (data || []).map(row => ({
+      date: row.snapshot_date,
+      totalValue: row.total_value,
+      dailyChange: row.daily_change,
+      dailyChangePct: row.daily_change_pct,
+    }));
+  } catch (error) {
+    console.error('Error getting portfolio history:', error);
+    return [];
+  }
+}
+
+/**
+ * Format portfolio performance over a time period
+ */
+export async function formatPortfolioPerformance(days: number = 30): Promise<string> {
+  const history = await getPortfolioHistory(days);
+
+  if (history.length === 0) {
+    return `📊 No portfolio history available yet. Snapshots are taken daily at 5am CT.`;
+  }
+
+  const first = history[0];
+  const last = history[history.length - 1];
+  const periodChange = last.totalValue - first.totalValue;
+  const periodChangePct = (periodChange / first.totalValue) * 100;
+
+  const highValue = Math.max(...history.map(h => h.totalValue));
+  const lowValue = Math.min(...history.map(h => h.totalValue));
+  const highDate = history.find(h => h.totalValue === highValue)?.date;
+  const lowDate = history.find(h => h.totalValue === lowValue)?.date;
+
+  const upDays = history.filter(h => h.dailyChange > 0).length;
+  const downDays = history.filter(h => h.dailyChange < 0).length;
+  const flatDays = history.filter(h => h.dailyChange === 0).length;
+
+  let response = `📊 **Portfolio Performance (${days} Days)**\n\n`;
+  response += `**Current Value:** ${formatCurrency(last.totalValue)}\n`;
+  response += `**Period Change:** ${formatCurrency(periodChange)} (${formatPct(periodChangePct)})\n\n`;
+  response += `**Range:**\n`;
+  response += `  📈 High: ${formatCurrency(highValue)} (${highDate})\n`;
+  response += `  📉 Low: ${formatCurrency(lowValue)} (${lowDate})\n\n`;
+  response += `**Trading Days:** ${history.length}\n`;
+  response += `  ✅ Up: ${upDays} | ❌ Down: ${downDays} | ➖ Flat: ${flatDays}\n`;
+
+  return response;
+}
+
+// ============================================================================
+// EXPORTS
+// ============================================================================
+
+export { loadPortfolio as loadPortfolioPositions };
